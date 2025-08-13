@@ -1,0 +1,6 @@
+{
+  "name": "Financial Document Analyzer",
+  "description": "An application to extract structured data from financial PDF documents using AI. Upload a PDF, specify a page range, and get key financial data in JSON format.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
