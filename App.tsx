@@ -309,10 +309,10 @@ const App: React.FC = () => {
       role="tab"
       aria-selected={currentTab === tabId}
       onClick={() => onClick(tabId)}
-      className={`py-3 px-6 font-medium text-sm rounded-t-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-sky-500
+      className={`py-3 px-6 font-medium text-sm transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-t-lg
         ${currentTab === tabId 
-          ? 'bg-slate-700 text-sky-400 border-b-2 border-sky-400' 
-          : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700/70'
+          ? 'text-blue-600 border-b-2 border-blue-600' 
+          : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'
         }`}
     >
       {children}
@@ -320,20 +320,20 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 p-4 sm:p-8 flex flex-col items-center">
+    <div className="min-h-screen bg-white text-slate-800 p-4 sm:p-8 flex flex-col items-center">
       <header className="w-full max-w-4xl mb-8 text-center">
-        <h1 className="text-4xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-blue-600">
+        <h1 className="text-4xl sm:text-5xl font-bold text-blue-600">
           Financial Document Analyzer
         </h1>
-        <p className="mt-3 text-slate-400 text-lg">
+        <p className="mt-3 text-slate-600 text-lg">
           Extract, view, and query structured data from PDFs or your JSON files using AI.
         </p>
       </header>
 
       <div className="w-full max-w-4xl mb-6">
-        <div className="bg-slate-800 shadow-xl rounded-xl p-4 sm:p-6">
-          <label htmlFor="api-key-input" className="block text-lg font-semibold text-slate-200 mb-2 flex items-center">
-            <KeyRound size={20} className="mr-2 text-sky-400" />
+        <div className="bg-slate-50 border border-slate-200 shadow-sm rounded-xl p-4 sm:p-6">
+          <label htmlFor="api-key-input" className="block text-lg font-semibold text-slate-700 mb-2 flex items-center">
+            <KeyRound size={20} className="mr-2 text-blue-500" />
             Gemini API Key Configuration
           </label>
           <div className="flex items-center gap-2">
@@ -343,7 +343,7 @@ const App: React.FC = () => {
               value={apiKey}
               onChange={(e) => handleApiKeyChange(e.target.value)}
               placeholder="Enter your Gemini API Key here"
-              className="flex-grow bg-slate-700 border border-slate-600 text-slate-100 placeholder-slate-400 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block p-2.5"
+              className="flex-grow bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5"
               aria-describedby="api-key-help"
             />
           </div>
@@ -355,7 +355,7 @@ const App: React.FC = () => {
 
       <div className="w-full max-w-4xl">
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-700 mb-px">
+        <div className="flex border-b border-slate-200 mb-px">
           <TabButton tabId="analyze" currentTab={activeTab} onClick={setActiveTab}>
             <FileText size={18} className="inline mr-2" /> Analyze Document
           </TabButton>
@@ -367,11 +367,11 @@ const App: React.FC = () => {
           </TabButton>
         </div>
 
-        <main className="w-full bg-slate-800 shadow-2xl rounded-b-xl p-6 sm:p-8">
+        <main className="w-full bg-white shadow-lg border border-slate-200 rounded-b-xl p-6 sm:p-8">
           {/* Analyze Document Tab Content */}
           {activeTab === 'analyze' && (
             <section aria-labelledby="analysis-section-title">
-              <h2 id="analysis-section-title" className="text-2xl font-semibold text-slate-200 mb-6">
+              <h2 id="analysis-section-title" className="text-2xl font-semibold text-slate-800 mb-6">
                 Analyze PDF Document
               </h2>
               <div className="space-y-6">
@@ -380,7 +380,7 @@ const App: React.FC = () => {
                 <button
                   onClick={handlePdfSubmit}
                   disabled={pdfProcessingLoading || !pdfFileToAnalyze}
-                  className="w-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition-all duration-300 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition-all duration-300 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
                   aria-live="polite"
                 >
                   {pdfProcessingLoading ? <Spinner /> : <span>Analyze Document</span>}
@@ -388,13 +388,13 @@ const App: React.FC = () => {
               </div>
 
               {pdfProcessingInfoMessage && !pdfProcessingError && (
-                <div role="status" className="mt-6 p-4 bg-sky-700/30 border border-sky-600 text-sky-300 rounded-lg flex items-center space-x-3">
+                <div role="status" className="mt-6 p-4 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg flex items-center space-x-3">
                   <Info size={20} />
                   <span>{pdfProcessingInfoMessage}</span>
                 </div>
               )}
               {pdfProcessingError && (
-                <div role="alert" className="mt-6 p-4 bg-red-700/30 border border-red-600 text-red-300 rounded-lg flex items-center space-x-3">
+                <div role="alert" className="mt-6 p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg flex items-center space-x-3">
                   <AlertTriangle size={20} />
                   <span>{pdfProcessingError}</span>
                 </div>
@@ -402,13 +402,13 @@ const App: React.FC = () => {
               {pdfProcessingLoading && (
                  <div role="status" className="mt-8 text-center">
                    <Spinner size="large"/>
-                   <p className="text-slate-400 mt-2">{pdfProcessingInfoMessage || 'Processing...'}</p>
+                   <p className="text-slate-500 mt-2">{pdfProcessingInfoMessage || 'Processing...'}</p>
                  </div>
               )}
               {pdfFileToAnalyze && !pdfProcessingLoading && !pdfProcessingError && !pdfProcessingInfoMessage && ( 
-                  <div className="mt-8 text-center p-6 bg-slate-700/80 rounded-lg">
-                    <Info size={32} className="mx-auto text-sky-400 mb-3" />
-                    <p className="text-slate-300 text-lg">Document '{pdfFileNameToAnalyze}' ready. Click "Analyze Document" to extract data.</p>
+                  <div className="mt-8 text-center p-6 bg-blue-50/70 rounded-lg">
+                    <Info size={32} className="mx-auto text-blue-500 mb-3" />
+                    <p className="text-slate-700 text-lg">Document '{pdfFileNameToAnalyze}' ready. Click "Analyze Document" to extract data.</p>
                   </div>
                )}
             </section>
@@ -419,12 +419,12 @@ const App: React.FC = () => {
              <section aria-labelledby="view-data-section-title">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                     <div>
-                        <h2 id="view-data-section-title" className="text-2xl font-semibold text-slate-200">
+                        <h2 id="view-data-section-title" className="text-2xl font-semibold text-slate-800">
                             View & Manage Data Sources
                         </h2>
                         {currentDisplayDataSourceName && (
-                             <p className="text-sm text-slate-400">
-                                Active source for viewing: <span className="font-medium text-sky-400">{currentDisplayDataSourceName}</span>
+                             <p className="text-sm text-slate-500">
+                                Active source for viewing: <span className="font-medium text-blue-600">{currentDisplayDataSourceName}</span>
                             </p>
                         )}
                     </div>
@@ -434,7 +434,7 @@ const App: React.FC = () => {
                                 <select
                                     value={activeDataSourceId || ''}
                                     onChange={(e) => setActiveDataSourceId(e.target.value)}
-                                    className="w-full appearance-none bg-slate-700 border border-slate-600 text-slate-100 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block p-2.5 pr-8"
+                                    className="w-full appearance-none bg-white border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 pr-8"
                                     aria-label="Select data source to view"
                                 >
                                     {dataSources.map(src => (
@@ -443,7 +443,7 @@ const App: React.FC = () => {
                                     </option>
                                     ))}
                                 </select>
-                                <ChevronDown size={16} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+                                <ChevronDown size={16} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none"/>
                             </div>
                             <button
                                 onClick={handleRemoveActiveDataSource}
@@ -458,28 +458,28 @@ const App: React.FC = () => {
                     )}
                 </div>
 
-                <div className="mb-8 p-6 bg-slate-700/50 rounded-lg shadow">
-                    <h3 className="text-lg font-semibold text-sky-400 mb-3 flex items-center">
+                <div className="mb-8 p-6 bg-slate-50 rounded-lg border border-slate-200">
+                    <h3 className="text-lg font-semibold text-blue-600 mb-3 flex items-center">
                         <UploadCloud size={20} className="mr-2"/> Upload JSON File
                     </h3>
-                    <p className="text-sm text-slate-400 mb-4">
+                    <p className="text-sm text-slate-500 mb-4">
                         Upload your own JSON file (array of data items). It will be added as a new data source.
                     </p>
                     <JsonUpload onJsonFileChange={handleJsonFileSelectedForUpload} currentJsonFileName={jsonFileNameToUpload} />
                     {jsonProcessingLoading && (
                         <div role="status" className="mt-4 text-center">
                             <Spinner size="medium"/>
-                            <p className="text-slate-400 mt-1 text-sm">{jsonProcessingInfoMessage || 'Processing JSON...'}</p>
+                            <p className="text-slate-500 mt-1 text-sm">{jsonProcessingInfoMessage || 'Processing JSON...'}</p>
                         </div>
                     )}
                     {jsonProcessingInfoMessage && !jsonProcessingError && !jsonProcessingLoading && ( 
-                        <div role="status" className={`mt-4 p-3 rounded-md text-sm flex items-center space-x-2 ${jsonProcessingInfoMessage.toLowerCase().includes('warning') ? 'bg-amber-700/20 border border-amber-600/50 text-amber-300' : 'bg-sky-700/20 border border-sky-600/50 text-sky-300'}`}>
+                        <div role="status" className={`mt-4 p-3 rounded-md text-sm flex items-center space-x-2 ${jsonProcessingInfoMessage.toLowerCase().includes('warning') ? 'bg-amber-50 border border-amber-200 text-amber-800' : 'bg-blue-50 border border-blue-200 text-blue-800'}`}>
                             <Info size={18} />
                             <span>{jsonProcessingInfoMessage}</span>
                         </div>
                     )}
                     {jsonProcessingError && (
-                        <div role="alert" className="mt-4 p-3 bg-red-700/20 border border-red-600/50 text-red-300 rounded-md text-sm flex items-center space-x-2">
+                        <div role="alert" className="mt-4 p-3 bg-red-50 border border-red-200 text-red-800 rounded-md text-sm flex items-center space-x-2">
                             <AlertTriangle size={18} />
                             <span>{jsonProcessingError}</span>
                         </div>
@@ -489,18 +489,18 @@ const App: React.FC = () => {
                 {currentDisplayData && currentDisplayData.length > 0 ? (
                     <DataDisplay data={currentDisplayData} />
                 ) : dataSources.length > 0 && (!currentDisplayData || currentDisplayData.length === 0) && currentDisplayDataSourceName ? (
-                     <div className="text-center p-8 bg-slate-700/50 rounded-lg shadow">
-                        <Database size={40} className="mx-auto text-sky-500 mb-4" />
-                        <p className="text-slate-300 text-lg">The selected data source '{currentDisplayDataSourceName}' is empty or contains no displayable items.</p>
-                        <p className="text-slate-400">
+                     <div className="text-center p-8 bg-slate-50 rounded-lg border border-slate-200">
+                        <Database size={40} className="mx-auto text-blue-500 mb-4" />
+                        <p className="text-slate-700 text-lg">The selected data source '{currentDisplayDataSourceName}' is empty or contains no displayable items.</p>
+                        <p className="text-slate-500">
                             Try selecting another source or analyzing/uploading a new one.
                         </p>
                     </div>
                 ) : (
-                    <div className="text-center p-8 bg-slate-700/50 rounded-lg shadow">
-                        <Database size={40} className="mx-auto text-sky-500 mb-4" />
-                        <p className="text-slate-300 text-lg">No data sources available.</p>
-                        <p className="text-slate-400">
+                    <div className="text-center p-8 bg-slate-50 rounded-lg border border-slate-200">
+                        <Database size={40} className="mx-auto text-blue-500 mb-4" />
+                        <p className="text-slate-700 text-lg">No data sources available.</p>
+                        <p className="text-slate-500">
                             Please analyze a PDF document in the "Analyze Document" tab or upload a JSON file above to add a data source.
                         </p>
                     </div>
@@ -511,15 +511,15 @@ const App: React.FC = () => {
           {/* AI Chat Tab Content */}
           {activeTab === 'aiChat' && (
             <section aria-labelledby="ai-chat-section-title">
-              <h2 id="ai-chat-section-title" className="text-2xl font-semibold text-slate-200 mb-6">
+              <h2 id="ai-chat-section-title" className="text-2xl font-semibold text-slate-800 mb-6">
                 AI Chat
               </h2>
               
-              <div className="mb-6 p-4 bg-slate-700/50 rounded-lg shadow">
-                <h3 className="text-lg font-semibold text-sky-400 mb-3 flex items-center">
+              <div className="mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <h3 className="text-lg font-semibold text-blue-600 mb-3 flex items-center">
                     <ListChecks size={20} className="mr-2"/> Data Sources for Chat Context
                 </h3>
-                 <p className="text-sm text-slate-400 mb-3">
+                 <p className="text-sm text-slate-500 mb-3">
                     The AI will consider all available data sources listed below. Click a source to view its details in the "View Data" tab.
                   </p>
                 {dataSources.length > 0 ? (
@@ -531,7 +531,7 @@ const App: React.FC = () => {
                                         setActiveDataSourceId(src.id);
                                         setActiveTab('viewData');
                                     }}
-                                    className="w-full text-left p-2.5 rounded-lg text-sm transition-colors duration-150 bg-sky-600 text-white font-medium shadow-md hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-400 focus:ring-offset-slate-700"
+                                    className="w-full text-left p-2.5 rounded-lg text-sm transition-colors duration-150 bg-white border border-blue-500 text-blue-600 font-medium shadow-sm hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
                                 >
                                     {src.name} ({src.type}, {src.data.length} items)
                                 </button>
@@ -539,7 +539,7 @@ const App: React.FC = () => {
                         ))}
                     </ul>
                 ) : (
-                    <p className="text-slate-400 text-sm">
+                    <p className="text-slate-500 text-sm">
                         No data sources available for chat. Please add a source via the "Analyze Document" or "View Data" tabs.
                     </p>
                 )}
@@ -557,18 +557,18 @@ const App: React.FC = () => {
                 </div>
               ) : (
                  dataSources.length > 0 && dataSources.every(ds => ds.data.length === 0) ? (
-                    <div className="text-center p-8 bg-slate-700/50 rounded-lg shadow">
-                        <Info size={40} className="mx-auto text-sky-500 mb-4" />
-                        <p className="text-slate-300 text-lg">All available data sources are empty.</p>
-                        <p className="text-slate-400">
+                    <div className="text-center p-8 bg-slate-50 rounded-lg border border-slate-200">
+                        <Info size={40} className="mx-auto text-blue-500 mb-4" />
+                        <p className="text-slate-700 text-lg">All available data sources are empty.</p>
+                        <p className="text-slate-500">
                             Chat is disabled. Please add or analyze a file with data.
                         </p>
                     </div>
                  ) : ( // No data sources at all
-                    <div className="text-center p-8 bg-slate-700/50 rounded-lg shadow">
-                        <Info size={40} className="mx-auto text-sky-500 mb-4" />
-                        <p className="text-slate-300 text-lg">No data sources available for chat.</p>
-                        <p className="text-slate-400">
+                    <div className="text-center p-8 bg-slate-50 rounded-lg border border-slate-200">
+                        <Info size={40} className="mx-auto text-blue-500 mb-4" />
+                        <p className="text-slate-700 text-lg">No data sources available for chat.</p>
+                        <p className="text-slate-500">
                            Please add a data source (via "Analyze Document" or "View Data" tab) to begin chatting.
                         </p>
                     </div>

@@ -2,21 +2,16 @@
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { ExtractedDataItem, PageText, ChatMessage, QuerySource } from '../types';
 
-const API_KEY = process.env.API_KEY;
-
-if (!API_KEY) {
-  console.warn("API_KEY environment variable not found. Gemini API calls will fail.");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY! });
-
 export const analyzeDocument = async (
   pageTexts: PageText[],
-  fileName: string
+  fileName: string,
+  apiKey: string
 ): Promise<ExtractedDataItem[]> => {
-  if (!API_KEY) {
-    throw new Error("Gemini API Key is not configured. Please set the API_KEY environment variable.");
+  if (!apiKey) {
+    throw new Error("Gemini API Key is not provided. Please enter your API key in the configuration section.");
   }
+  const ai = new GoogleGenAI({ apiKey });
+
 
   let combinedTextForPrompt = `Document: ${fileName}\n\n`;
   pageTexts.forEach(pt => {
@@ -124,7 +119,7 @@ The 'source' text should be the direct snippet from the document that contains t
   } catch (error) {
     console.error("Error calling Gemini API or processing its response [analyzeDocument]:", error);
     if (error instanceof Error && (error.message.includes('API key not valid') || error.message.includes('API_KEY'))) {
-         throw new Error('Invalid Gemini API Key. Please check your API_KEY environment variable.');
+         throw new Error('Invalid Gemini API Key. Please check the key you entered.');
     }
     throw error;
   }
@@ -134,11 +129,14 @@ The 'source' text should be the direct snippet from the document that contains t
 export const queryExtractedData = async (
   question: string,
   allDataSources: QuerySource[],
-  chatHistory: ChatMessage[]
+  chatHistory: ChatMessage[],
+  apiKey: string
 ): Promise<string> => {
-  if (!API_KEY) {
-    throw new Error("Gemini API Key is not configured. Please set the API_KEY environment variable for chat functionality.");
+  if (!apiKey) {
+    throw new Error("Gemini API Key is not provided for chat functionality. Please enter your API key.");
   }
+  const ai = new GoogleGenAI({ apiKey });
+
 
   if (allDataSources.length === 0) {
     return "I don't have any data sources to query. Please add a document or JSON file.";
@@ -230,7 +228,7 @@ Provide your answer to the "Current User Question" below:
   } catch (error) {
     console.error("Error calling Gemini API for chat query:", error);
      if (error instanceof Error && (error.message.includes('API key not valid') || error.message.includes('API_KEY'))) {
-         throw new Error('Invalid Gemini API Key for chat. Please check your API_KEY environment variable.');
+         throw new Error('Invalid Gemini API Key for chat. Please check the key you entered.');
     }
     throw new Error(`An error occurred while trying to answer your question with AI. Details: ${error instanceof Error ? error.message : String(error)}`);
   }
