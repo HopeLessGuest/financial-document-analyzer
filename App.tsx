@@ -9,7 +9,7 @@ import { Spinner } from './components/Spinner';
 import { extractTextFromPdf } from './services/pdfParser';
 import { analyzeDocument, queryExtractedData } from './services/geminiService';
 import { ChatInterface } from './components/ChatInterface';
-import { AlertTriangle, CheckCircle, Info, MessageSquare, FileText, UploadCloud, Table2, Database, Trash2, ChevronDown, ListChecks } from 'lucide-react';
+import { AlertTriangle, KeyRound, Info, MessageSquare, FileText, UploadCloud, Table2, Database, Trash2, ChevronDown, ListChecks } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 // PDF.js worker configuration
@@ -21,6 +21,11 @@ if (typeof window !== 'undefined') {
 type ActiveTab = 'analyze' | 'aiChat' | 'viewData';
 
 const App: React.FC = () => {
+  // --- State Management ---
+
+  // API Key State (replaces process.env)
+  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || '');
+  
   // Common state
   const [activeTab, setActiveTab] = useState<ActiveTab>('analyze');
 
@@ -46,7 +51,6 @@ const App: React.FC = () => {
   // Derived state for current display and query
   const [currentDisplayData, setCurrentDisplayData] = useState<ExtractedDataItem[] | null>(null);
   const [currentDisplayDataSourceName, setCurrentDisplayDataSourceName] = useState<string | null>(null);
-  // currentQuerySource is still useful for knowing which source is "selected" in the UI, even if chat uses all
   const [currentQuerySource, setCurrentQuerySource] = useState<QuerySource | null>(null);
 
 
@@ -54,6 +58,13 @@ const App: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
   const [chatError, setChatError] = useState<string | null>(null);
+
+  // --- Handlers & Effects ---
+
+  const handleApiKeyChange = (newKey: string) => {
+    setApiKey(newKey);
+    localStorage.setItem('gemini_api_key', newKey);
+  };
 
   const resetPdfInputState = () => {
     setPdfFileToAnalyze(null);
@@ -153,8 +164,8 @@ const App: React.FC = () => {
       return;
     }
 
-    if (!process.env.API_KEY) {
-        setPdfProcessingError('Gemini API Key is not configured. Please set the API_KEY environment variable.');
+    if (!apiKey) {
+        setPdfProcessingError('Please enter your Gemini API Key in the configuration section above.');
         setPdfProcessingInfoMessage(null); 
         return;
     }
@@ -175,7 +186,7 @@ const App: React.FC = () => {
       
       setPdfProcessingInfoMessage(`Text extracted from ${pageTexts.length} page(s). Analyzing with AI...`);
 
-      const data = await analyzeDocument(pageTexts, pdfFileNameToAnalyze);
+      const data = await analyzeDocument(pageTexts, pdfFileNameToAnalyze, apiKey);
       
       const processedData = data.map(item => ({
         ...item,
@@ -212,7 +223,7 @@ const App: React.FC = () => {
     } finally {
       setPdfProcessingLoading(false);
     }
-  }, [pdfFileToAnalyze, pdfFileNameToAnalyze, pageRange]);
+  }, [pdfFileToAnalyze, pdfFileNameToAnalyze, pageRange, apiKey]);
 
 
   const handleSendChatMessage = useCallback(async (messageText: string) => {
@@ -242,11 +253,7 @@ const App: React.FC = () => {
     setChatError(null);
 
     try {
-      if (!process.env.API_KEY) {
-        throw new Error('Gemini API Key is not configured. Please set the API_KEY environment variable for chat functionality.');
-      }
-      // Pass all data sources to the AI
-      const aiResponseText = await queryExtractedData(messageText, dataSources, updatedChatMessages);
+      const aiResponseText = await queryExtractedData(messageText, dataSources, updatedChatMessages, apiKey);
       const newAiMessage: ChatMessage = {
         id: uuidv4(),
         sender: 'ai',
@@ -268,7 +275,7 @@ const App: React.FC = () => {
     } finally {
       setIsChatLoading(false);
     }
-  }, [dataSources, chatMessages]); 
+  }, [dataSources, chatMessages, apiKey]); 
 
   const handleRemoveActiveDataSource = () => {
     if (!activeDataSourceId) return;
@@ -322,6 +329,29 @@ const App: React.FC = () => {
           Extract, view, and query structured data from PDFs or your JSON files using AI.
         </p>
       </header>
+
+      <div className="w-full max-w-4xl mb-6">
+        <div className="bg-slate-800 shadow-xl rounded-xl p-4 sm:p-6">
+          <label htmlFor="api-key-input" className="block text-lg font-semibold text-slate-200 mb-2 flex items-center">
+            <KeyRound size={20} className="mr-2 text-sky-400" />
+            Gemini API Key Configuration
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              id="api-key-input"
+              type="password"
+              value={apiKey}
+              onChange={(e) => handleApiKeyChange(e.target.value)}
+              placeholder="Enter your Gemini API Key here"
+              className="flex-grow bg-slate-700 border border-slate-600 text-slate-100 placeholder-slate-400 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block p-2.5"
+              aria-describedby="api-key-help"
+            />
+          </div>
+          <p id="api-key-help" className="mt-2 text-xs text-slate-500">
+            Required for all AI features. Your key is stored in your browser's local storage and is not sent to any server except Google's.
+          </p>
+        </div>
+      </div>
 
       <div className="w-full max-w-4xl">
         {/* Tab Navigation */}
