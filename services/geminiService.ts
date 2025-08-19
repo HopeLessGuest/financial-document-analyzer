@@ -1,6 +1,6 @@
 
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
-import { ExtractedDataItem, PageText, ChatMessage, QuerySource } from '../types';
+import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
+import { ExtractedDataItem, PageText, ChatMessage, QuerySource, BoundingBox, ExtractedChartItem } from '../types';
 
 export const analyzeDocument = async (
   pageTexts: PageText[],
@@ -126,6 +126,128 @@ The 'source' text should be the direct snippet from the document that contains t
 };
 
 
+interface GeminiChartResponse {
+  charts: {
+    title: string;
+    coordinates: BoundingBox;
+  }[];
+}
+
+export const analyzeImagesForCharts = async (
+  pageImages: { pageNumber: number; imageDataUrl: string; width: number; height: number }[],
+  apiKey: string,
+  onProgress?: (progress: number, message: string) => void
+): Promise<Omit<ExtractedChartItem, 'imageDataUrl' | 'id' | 'file'>[]> => {
+  if (!apiKey) {
+    throw new Error("Gemini API Key is not provided.");
+  }
+  const ai = new GoogleGenAI({ apiKey });
+
+  const allExtractedCharts: Omit<ExtractedChartItem, 'imageDataUrl' | 'id' | 'file'>[] = [];
+
+  for (let i = 0; i < pageImages.length; i++) {
+    const pageImage = pageImages[i];
+    if (onProgress) {
+        onProgress(Math.round(((i) / pageImages.length) * 100), `Analyzing page ${pageImage.pageNumber} for charts...`);
+    }
+
+    const base64Data = pageImage.imageDataUrl.split(',')[1];
+    
+    const imagePart = {
+      inlineData: {
+        mimeType: 'image/jpeg',
+        data: base64Data,
+      },
+    };
+
+    const textPart = {
+      text: `You are an expert at identifying visual data representations in financial documents.
+Analyze the following image of a document page. The image dimensions are ${pageImage.width}px (width) by ${pageImage.height}px (height).
+
+Your task is to identify and locate all visual charts and graphs. This includes, but is not limited to:
+- Bar charts
+- Line graphs
+- Pie charts
+- Area charts
+- Scatter plots
+
+**CRITICAL INSTRUCTIONS:**
+1.  **DO NOT** extract simple, unstyled data tables. Only extract tables if they are presented as a complex visual graphic (e.g., a heatmap table).
+2.  For each chart/graph found, provide its title and a precise bounding box in pixels.
+3.  The bounding box 'x' and 'y' coordinates MUST represent the top-left corner of the item. 'width' and 'height' are the dimensions of the box.
+4.  Ensure coordinates are within the image boundaries (0 to ${pageImage.width} for x, 0 to ${pageImage.height} for y).
+
+Your response MUST be a JSON object that strictly adheres to the provided schema. Do not include any markdown fences or other text outside the JSON object.
+If no visual charts or graphs are found, return a JSON object with an empty "charts" array.`
+    };
+
+    try {
+      const response: GenerateContentResponse = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: { parts: [textPart, imagePart] },
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              charts: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    title: { type: Type.STRING, description: 'The title of the chart or table.' },
+                    coordinates: {
+                      type: Type.OBJECT,
+                      properties: {
+                        x: { type: Type.NUMBER, description: `The x-coordinate of the top-left corner of the bounding box, from 0 to ${pageImage.width}.` },
+                        y: { type: Type.NUMBER, description: `The y-coordinate of the top-left corner of the bounding box, from 0 to ${pageImage.height}.` },
+                        width: { type: Type.NUMBER, description: 'The width of the bounding box in pixels.' },
+                        height: { type: Type.NUMBER, description: 'The height of the bounding box in pixels.' }
+                      },
+                      required: ['x', 'y', 'width', 'height']
+                    }
+                  },
+                  required: ['title', 'coordinates']
+                }
+              }
+            },
+            required: ['charts']
+          },
+          temperature: 0.1,
+        },
+      });
+
+      let jsonStr = response.text.trim();
+      const parsed = JSON.parse(jsonStr) as GeminiChartResponse;
+
+      if (parsed.charts && Array.isArray(parsed.charts)) {
+        parsed.charts.forEach(chartInfo => {
+          const { x, y, width, height } = chartInfo.coordinates;
+          if (x >= 0 && y >= 0 && width > 10 && height > 10 && x + width <= pageImage.width + 5 && y + height <= pageImage.height + 5) { // Add tolerance
+              allExtractedCharts.push({
+                pageNumber: pageImage.pageNumber,
+                title: chartInfo.title,
+                coordinates: chartInfo.coordinates,
+              });
+          } else {
+             console.warn(`Skipping chart with invalid coordinates on page ${pageImage.pageNumber}:`, chartInfo.coordinates);
+          }
+        });
+      }
+
+    } catch (error) {
+      console.error(`Error analyzing page ${pageImage.pageNumber} for charts:`, error);
+    }
+  }
+  
+  if (onProgress) {
+    onProgress(100, `AI analysis complete. Found ${allExtractedCharts.length} potential charts.`);
+  }
+
+  return allExtractedCharts;
+};
+
+
 export const queryExtractedData = async (
   question: string,
   allDataSources: QuerySource[],
@@ -144,9 +266,9 @@ export const queryExtractedData = async (
   
   const allSourcesDataForPrompt: { [sourceName: string]: ExtractedDataItem[] } = {};
   allDataSources.forEach(source => {
-    // Ensure source.name is a valid key (e.g. no dots if not desired, though JSON keys can have them)
-    // For simplicity, direct usage is fine if names are reasonable.
-    allSourcesDataForPrompt[source.name] = source.data;
+    if (source.dataType === 'numerical') { // Only include numerical data
+        allSourcesDataForPrompt[source.name] = source.data as ExtractedDataItem[];
+    }
   });
 
   let contextDataString = JSON.stringify(allSourcesDataForPrompt, null, 2);
@@ -161,6 +283,7 @@ export const queryExtractedData = async (
   }
   
   const sourceDescriptions = allDataSources
+    .filter(s => s.dataType === 'numerical')
     .map(s => `- "${s.name}" (type: ${s.type}, items: ${s.data.length})`)
     .join('\n');
 
@@ -176,7 +299,7 @@ export const queryExtractedData = async (
   
   const prompt = `
 You are an AI assistant specialized in answering questions about financial data from multiple sources.
-You have access to data from the following sources:
+You have access to data from the following sources containing numerical data:
 ${sourceDescriptions}
 
 The structured data from these sources is provided below in a JSON object format. The keys of this object are the source names, and the values are arrays of data items extracted from that source.

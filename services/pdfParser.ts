@@ -1,4 +1,3 @@
-
 import * as pdfjsLib from 'pdfjs-dist';
 import { PageText } from '../types';
 
@@ -119,4 +118,74 @@ export const extractTextFromPdf = async (
   }
 
   return pageTexts;
+};
+
+
+export const renderPdfPagesToImages = async (
+  file: File,
+  pageRangeString?: string,
+  onProgress?: (progress: number) => void
+): Promise<{ pageNumber: number; imageDataUrl: string; width: number; height: number }[]> => {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const maxPage = pdf.numPages;
+
+  let pagesToProcess: number[];
+  try {
+    pagesToProcess = parsePageRangeString(pageRangeString || '', maxPage);
+  } catch (e) {
+    throw e;
+  }
+  
+  const pageImages: { pageNumber: number; imageDataUrl: string; width: number; height: number }[] = [];
+  const targetWidth = 2048; // Standardize width for consistent analysis
+
+  for (let i = 0; i < pagesToProcess.length; i++) {
+    const pageNum = pagesToProcess[i];
+    try {
+      const page = await pdf.getPage(pageNum);
+      const unscaledViewport = page.getViewport({ scale: 1.0 });
+      const scale = targetWidth / unscaledViewport.width;
+      const viewport = page.getViewport({ scale });
+      
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      if (!context) {
+        throw new Error('Could not get canvas context');
+      }
+
+      const renderContext = {
+        canvasContext: context,
+        viewport: viewport,
+      };
+
+      // The `page.render` method from pdf.js v4+ expects an object that conforms to
+      // `RenderParameters`. The type definitions for the installed version of
+      // `pdfjs-dist` require `canvasContext`, `viewport`, and the `canvas` element itself.
+      await page.render({ ...renderContext, canvas }).promise;
+      
+      pageImages.push({
+        pageNumber: pageNum,
+        imageDataUrl: canvas.toDataURL('image/jpeg', 0.92), // Use JPEG for smaller size
+        width: canvas.width,
+        height: canvas.height,
+      });
+
+      if (onProgress) {
+        onProgress(Math.round(((i + 1) / pagesToProcess.length) * 100));
+      }
+
+    } catch (error) {
+      console.warn(`Could not render page ${pageNum} to image:`, error);
+      // Skip the page on error but report progress
+       if (onProgress) {
+        onProgress(Math.round(((i + 1) / pagesToProcess.length) * 100));
+      }
+    }
+  }
+
+  return pageImages;
 };

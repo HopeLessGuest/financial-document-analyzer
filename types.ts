@@ -13,21 +13,40 @@ export interface ExtractedDataItem {
   documentType?: string;
 }
 
+export interface BoundingBox {
+  x: number; // top-left x in pixels
+  y: number; // top-left y in pixels
+  width: number;
+  height: number;
+}
+
+export interface ExtractedChartItem {
+  id: string; // unique id for key
+  pageNumber: number;
+  title: string;
+  coordinates: BoundingBox;
+  imageDataUrl?: string; // data URL of the cropped chart image, optional for metadata-only imports
+  file: string; // source file name
+}
+
 export interface PageText {
   pageNumber: number;
   text: string;
 }
 
 export interface ChatMessage {
-  id: string;
+  id:string;
   sender: 'user' | 'ai';
   text: string;
   timestamp: number;
 }
 
+export type DataType = 'numerical' | 'chart';
+
 export interface QuerySource {
-  id: string; // Added for unique identification
+  id: string;
   name: string;
-  data: ExtractedDataItem[];
+  data: ExtractedDataItem[] | ExtractedChartItem[];
   type: 'pdf' | 'json';
+  dataType: DataType;
 }
