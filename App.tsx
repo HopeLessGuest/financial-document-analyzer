@@ -6,8 +6,10 @@ import { PageRangeInput } from './components/PageRangeInput';
 import { DataDisplay } from './components/DataDisplay';
 import { Spinner } from './components/Spinner';
 import { extractTextFromPdf, renderPdfPagesToImages } from './services/pdfParser';
-import { analyzeDocument, queryExtractedData, analyzeImagesForCharts } from './services/geminiService';
+import { analyzeDocument as analyzeDocumentGemini, queryExtractedData as queryExtractedDataGemini, analyzeImagesForCharts } from './services/geminiService';
+import * as ollamaService from './services/ollamaService';
 import { ChatInterface } from './components/ChatInterface';
+import { SettingsMenu } from './components/SettingsMenu';
 import { AlertTriangle, KeyRound, Info, MessageSquare, FileText, UploadCloud, Table2, Database, Trash2, ChevronDown, ListChecks, BarChart3 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -18,13 +20,15 @@ if (typeof window !== 'undefined') {
 }
 
 type ActiveTab = 'analyze' | 'extractCharts' | 'viewData' | 'aiChat';
+type ModelProvider = 'gemini' | 'ollama';
 
 const App: React.FC = () => {
   // --- State Management ---
 
-  // API Key State
+  // API Key & Model State
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || '');
-  
+  const [modelProvider, setModelProvider] = useState<ModelProvider>(() => (localStorage.getItem('model_provider') as ModelProvider) || 'gemini');
+
   // Common state
   const [activeTab, setActiveTab] = useState<ActiveTab>('analyze');
 
@@ -35,6 +39,7 @@ const App: React.FC = () => {
   const [numericalProcessingLoading, setNumericalProcessingLoading] = useState<boolean>(false);
   const [numericalProcessingError, setNumericalProcessingError] = useState<string | null>(null);
   const [numericalProcessingInfoMessage, setNumericalProcessingInfoMessage] = useState<string | null>(null);
+  const [numericalProcessingProgress, setNumericalProcessingProgress] = useState<number>(0);
 
   // PDF Chart Extraction State
   const [chartFileToAnalyze, setChartFileToAnalyze] = useState<File | null>(null);
@@ -67,6 +72,11 @@ const App: React.FC = () => {
   const handleApiKeyChange = (newKey: string) => {
     setApiKey(newKey);
     localStorage.setItem('gemini_api_key', newKey);
+  };
+
+  const handleModelProviderChange = (provider: ModelProvider) => {
+    setModelProvider(provider);
+    localStorage.setItem('model_provider', provider);
   };
 
   const resetNumericalInputState = () => {
@@ -170,7 +180,7 @@ const App: React.FC = () => {
                   dataType: 'numerical',
                 };
                 infoMsg = `Successfully loaded ${newSource.data.length} items from legacy JSON file "${file.name}". Data type inferred as 'numerical'.`;
-            } else if (firstItem && typeof firstItem === 'object' && 'title' in firstItem && 'coordinates' in firstItem) {
+            } else if (firstItem && typeof firstItem === 'object' && 'title' in firstItem && 'pageNumber' in firstItem) {
                 // Looks like chart data
                 newSource = {
                   id: uuidv4(),
@@ -181,7 +191,7 @@ const App: React.FC = () => {
                 };
                  infoMsg = `Successfully loaded ${newSource.data.length} items from legacy JSON file "${file.name}". Data type inferred as 'chart'.`;
             } else {
-                throw new Error("The uploaded array does not contain recognizable data items (expected keys like 'value' and 'year' for numerical data, or 'title' and 'coordinates' for chart data).");
+                throw new Error("The uploaded array does not contain recognizable data items (expected keys like 'value' and 'year' for numerical data, or 'title' and 'pageNumber' for chart data).");
             }
         }
       } else {
@@ -211,26 +221,36 @@ const App: React.FC = () => {
       setNumericalProcessingError('Please upload a PDF file.');
       return;
     }
-    if (!apiKey) {
-      setNumericalProcessingError('Please enter your Gemini API Key in the configuration section.');
+    if (modelProvider === 'gemini' && !apiKey) {
+      setNumericalProcessingError('Please enter your Gemini API Key in the settings menu.');
       return;
     }
     
     setNumericalProcessingLoading(true);
     setNumericalProcessingError(null);
+    setNumericalProcessingProgress(0);
     setNumericalProcessingInfoMessage('Extracting text from PDF...');
 
     try {
+      setNumericalProcessingProgress(10);
       const pageTexts: PageText[] = await extractTextFromPdf(pdfFileToAnalyze, numericalPageRange);
 
       if (pageTexts.length === 0) {
         throw new Error('Could not extract text from the specified pages. The pages might be empty or scanned images.');
       }
       
-      setNumericalProcessingInfoMessage(`Text extracted from ${pageTexts.length} page(s). Analyzing with AI...`);
+      setNumericalProcessingProgress(50);
+      setNumericalProcessingInfoMessage(`Text extracted from ${pageTexts.length} page(s). Analyzing with AI (${modelProvider})...`);
 
-      const data = await analyzeDocument(pageTexts, pdfFileNameToAnalyze, apiKey);
+      let data: ExtractedDataItem[];
+      if (modelProvider === 'gemini') {
+        data = await analyzeDocumentGemini(pageTexts, pdfFileNameToAnalyze, apiKey);
+      } else {
+        data = await ollamaService.analyzeDocument(pageTexts, pdfFileNameToAnalyze);
+      }
       
+      setNumericalProcessingProgress(100);
+
       const newSource: QuerySource = {
         id: uuidv4(),
         name: pdfFileNameToAnalyze,
@@ -253,15 +273,19 @@ const App: React.FC = () => {
     } finally {
       setNumericalProcessingLoading(false);
     }
-  }, [pdfFileToAnalyze, pdfFileNameToAnalyze, numericalPageRange, apiKey]);
+  }, [pdfFileToAnalyze, pdfFileNameToAnalyze, numericalPageRange, apiKey, modelProvider]);
 
   const handleChartExtractionSubmit = useCallback(async () => {
+    if (modelProvider === 'ollama') {
+        setChartProcessingError("Chart extraction is not supported with the Ollama model. Please switch to Gemini in the settings menu.");
+        return;
+    }
     if (!chartFileToAnalyze) {
       setChartProcessingError('Please upload a PDF file.');
       return;
     }
     if (!apiKey) {
-      setChartProcessingError('Please enter your Gemini API Key in the configuration section.');
+      setChartProcessingError('Please enter your Gemini API Key in the settings menu.');
       return;
     }
     
@@ -281,36 +305,17 @@ const App: React.FC = () => {
       }
       
       const chartMetadatas = await analyzeImagesForCharts(pageImages, apiKey, (progress, message) => {
-        setChartProcessingProgress(50 + progress * 0.4); // AI Analysis is 40%
+        setChartProcessingProgress(50 + progress * 0.5); // AI Analysis is 50%
         setChartProcessingInfoMessage(message);
       });
 
-      setChartProcessingInfoMessage('Cropping extracted charts...');
-      const extractedCharts: ExtractedChartItem[] = [];
-      for (const metadata of chartMetadatas) {
-        const pageImage = pageImages.find(p => p.pageNumber === metadata.pageNumber);
-        if (!pageImage) continue;
+      const extractedCharts: ExtractedChartItem[] = chartMetadatas.map(metadata => ({
+          ...metadata,
+          id: uuidv4(),
+          file: chartFileNameToAnalyze,
+      }));
 
-        const image = new Image();
-        image.src = pageImage.imageDataUrl;
-        await new Promise(resolve => { image.onload = resolve; });
-
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        const { x, y, width, height } = metadata.coordinates;
-        canvas.width = width;
-        canvas.height = height;
-        if(ctx) {
-            ctx.drawImage(image, x, y, width, height, 0, 0, width, height);
-            extractedCharts.push({
-                ...metadata,
-                id: uuidv4(),
-                file: chartFileNameToAnalyze,
-                imageDataUrl: canvas.toDataURL('image/jpeg'),
-            });
-        }
-      }
-       setChartProcessingProgress(100);
+      setChartProcessingProgress(100);
 
       const newSource: QuerySource = {
         id: uuidv4(),
@@ -334,7 +339,7 @@ const App: React.FC = () => {
     } finally {
       setChartProcessingLoading(false);
     }
-  }, [chartFileToAnalyze, chartFileNameToAnalyze, chartPageRange, apiKey]);
+  }, [chartFileToAnalyze, chartFileNameToAnalyze, chartPageRange, apiKey, modelProvider]);
 
 
   const handleSendChatMessage = useCallback(async (messageText: string) => {
@@ -357,7 +362,13 @@ const App: React.FC = () => {
     setChatError(null);
 
     try {
-      const aiResponseText = await queryExtractedData(messageText, numericalDataSources, updatedChatMessages, apiKey);
+      let aiResponseText: string;
+      if (modelProvider === 'gemini') {
+          aiResponseText = await queryExtractedDataGemini(messageText, numericalDataSources, updatedChatMessages, apiKey);
+      } else {
+          aiResponseText = await ollamaService.queryExtractedData(messageText, numericalDataSources, updatedChatMessages);
+      }
+      
       const newAiMessage: ChatMessage = { id: uuidv4(), sender: 'ai', text: aiResponseText, timestamp: Date.now() };
       setChatMessages(prev => [...prev, newAiMessage]);
     } catch (err) {
@@ -368,7 +379,7 @@ const App: React.FC = () => {
     } finally {
       setIsChatLoading(false);
     }
-  }, [dataSources, chatMessages, apiKey]); 
+  }, [dataSources, chatMessages, apiKey, modelProvider]); 
 
   const handleRemoveActiveDataSource = () => {
     if (!activeDataSourceId) return;
@@ -381,9 +392,9 @@ const App: React.FC = () => {
       return "No numerical data sources available for chat.";
     }
     if (numericalSources.length === 1) {
-      return `Querying numerical data from: ${numericalSources[0].name}`;
+      return `Querying numerical data from: ${numericalSources[0].name} (using ${modelProvider})`;
     }
-    return `Querying numerical data from all ${numericalSources.length} available sources.`;
+    return `Querying numerical data from all ${numericalSources.length} available sources (using ${modelProvider}).`;
   };
 
   const TabButton: React.FC<{tabId: ActiveTab; currentTab: ActiveTab; onClick: (tabId: ActiveTab) => void; children: React.ReactNode;}> = 
@@ -404,35 +415,24 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-white text-slate-800 p-4 sm:p-8 flex flex-col items-center">
-      <header className="w-full max-w-5xl mb-8 text-center">
-        <h1 className="text-4xl sm:text-5xl font-bold text-blue-600">
-          Financial Document Analyzer
-        </h1>
-        <p className="mt-3 text-slate-600 text-lg">
-          Extract, view, and query structured data from PDFs or your JSON files using AI.
-        </p>
-      </header>
-
-      <div className="w-full max-w-5xl mb-6">
-        <div className="bg-slate-50 border border-slate-200 shadow-sm rounded-xl p-4 sm:p-6">
-          <label htmlFor="api-key-input" className="block text-lg font-semibold text-slate-700 mb-2 flex items-center">
-            <KeyRound size={20} className="mr-2 text-blue-500" />
-            Gemini API Key Configuration
-          </label>
-          <input
-            id="api-key-input"
-            type="password"
-            value={apiKey}
-            onChange={(e) => handleApiKeyChange(e.target.value)}
-            placeholder="Enter your Gemini API Key here"
-            className="w-full bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5"
-            aria-describedby="api-key-help"
-          />
-          <p id="api-key-help" className="mt-2 text-xs text-slate-500">
-            Required for all AI features. Your key is stored in your browser's local storage.
-          </p>
+      <header className="w-full max-w-5xl mb-8 relative">
+        <div className="text-center">
+            <h1 className="text-4xl sm:text-5xl font-bold text-blue-600">
+            Financial Document Analyzer
+            </h1>
+            <p className="mt-3 text-slate-600 text-lg">
+            Extract, view, and query structured data from PDFs or your JSON files using AI.
+            </p>
         </div>
-      </div>
+        <div className="absolute top-0 right-0">
+            <SettingsMenu
+                modelProvider={modelProvider}
+                onModelProviderChange={handleModelProviderChange}
+                apiKey={apiKey}
+                onApiKeyChange={handleApiKeyChange}
+            />
+        </div>
+      </header>
 
       <div className="w-full max-w-5xl">
         <div className="flex border-b border-slate-200 mb-px">
@@ -453,7 +453,15 @@ const App: React.FC = () => {
                   {numericalProcessingLoading ? <Spinner /> : <span>Analyze for Numerical Data</span>}
                 </button>
               </div>
-              {numericalProcessingLoading && <div className="mt-4 text-center"><Spinner size="large"/><p className="text-slate-500 mt-2">{numericalProcessingInfoMessage}</p></div>}
+              {numericalProcessingLoading && (
+                <div className="mt-4 text-center">
+                  <Spinner size="large"/>
+                  <p className="text-slate-500 mt-2">{numericalProcessingInfoMessage}</p>
+                  <div className="w-full bg-slate-200 rounded-full h-2.5 mt-2">
+                      <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style={{width: `${numericalProcessingProgress}%`}}></div>
+                  </div>
+                </div>
+              )}
               {numericalProcessingInfoMessage && !numericalProcessingLoading && !numericalProcessingError && <div role="status" className="mt-6 p-4 bg-blue-50 border-blue-200 text-blue-800 rounded-lg flex items-center space-x-3"><Info size={20} /><span>{numericalProcessingInfoMessage}</span></div>}
               {numericalProcessingError && <div role="alert" className="mt-6 p-4 bg-red-50 border-red-200 text-red-800 rounded-lg flex items-center space-x-3"><AlertTriangle size={20} /><span>{numericalProcessingError}</span></div>}
             </section>
@@ -461,11 +469,17 @@ const App: React.FC = () => {
 
           {activeTab === 'extractCharts' && (
              <section aria-labelledby="chart-extraction-title">
-              <h2 id="chart-extraction-title" className="text-2xl font-semibold text-slate-800 mb-6">Extract Charts & Tables from PDF</h2>
+              <h2 id="chart-extraction-title" className="text-2xl font-semibold text-slate-800 mb-6">Extract Chart Titles from PDF</h2>
+                {modelProvider === 'ollama' && (
+                    <div role="alert" className="mb-6 p-4 bg-amber-50 border-amber-200 text-amber-800 rounded-lg flex items-center space-x-3">
+                        <AlertTriangle size={20} className="flex-shrink-0" />
+                        <span>Chart extraction is a multimodal feature only available with Gemini. Please switch models in the settings to use this tab.</span>
+                    </div>
+                )}
               <div className="space-y-6">
                 <FileUpload onFileChange={handlePdfFileSelectedForCharts} currentFileName={chartFileNameToAnalyze} />
                 <PageRangeInput pageRange={chartPageRange} onPageRangeChange={setChartPageRange} />
-                <button onClick={handleChartExtractionSubmit} disabled={chartProcessingLoading || !chartFileToAnalyze} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2">
+                <button onClick={handleChartExtractionSubmit} disabled={chartProcessingLoading || !chartFileToAnalyze || modelProvider === 'ollama'} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2">
                   {chartProcessingLoading ? <Spinner /> : <span>Extract Charts</span>}
                 </button>
               </div>
@@ -507,7 +521,7 @@ const App: React.FC = () => {
                 </div>
                 
                 {activeDataSource && activeDataSource.data.length > 0 ? (
-                    <DataDisplay dataSource={activeDataSource} />
+                    <DataDisplay dataSource={activeDataSource} allDataSources={dataSources} />
                 ) : dataSources.length > 0 && activeDataSource ? (
                      <div className="text-center p-8 bg-slate-50 rounded-lg border border-slate-200"><Database size={40} className="mx-auto text-blue-500 mb-4" /><p className="text-slate-700 text-lg">The source '{activeDataSource.name}' is empty.</p></div>
                 ) : (
@@ -538,7 +552,7 @@ const App: React.FC = () => {
       </div>
 
       <footer className="w-full max-w-5xl mt-12 text-center text-slate-500 text-sm">
-        <p>&copy; {new Date().getFullYear()} AI Document Analyzer. Powered by Gemini.</p>
+        <p>&copy; {new Date().getFullYear()} AI Document Analyzer. Powered by AI.</p>
       </footer>
     </div>
   );

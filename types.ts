@@ -13,19 +13,10 @@ export interface ExtractedDataItem {
   documentType?: string;
 }
 
-export interface BoundingBox {
-  x: number; // top-left x in pixels
-  y: number; // top-left y in pixels
-  width: number;
-  height: number;
-}
-
 export interface ExtractedChartItem {
   id: string; // unique id for key
   pageNumber: number;
   title: string;
-  coordinates: BoundingBox;
-  imageDataUrl?: string; // data URL of the cropped chart image, optional for metadata-only imports
   file: string; // source file name
 }
 

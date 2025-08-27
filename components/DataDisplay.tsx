@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import JSZip from 'jszip';
 import { ExtractedDataItem, ExtractedChartItem, QuerySource } from '../types';
-import { ChevronDown, ChevronUp, FileJson, Maximize2, Download, Info, Archive, ImageIcon } from 'lucide-react';
+import { ChevronDown, ChevronUp, FileJson, Maximize2, Download, Info, Archive } from 'lucide-react';
 import { Spinner } from './Spinner';
 
 interface DataDisplayProps {
   dataSource: QuerySource;
+  allDataSources: QuerySource[];
 }
 
 const DataItemCard: React.FC<{ item: ExtractedDataItem; onShowSource: (source: string) => void }> = ({ item, onShowSource }) => {
@@ -64,43 +65,17 @@ const DataItemCard: React.FC<{ item: ExtractedDataItem; onShowSource: (source: s
 };
 
 const ChartItemCard: React.FC<{ item: ExtractedChartItem }> = ({ item }) => {
-  const handleDownload = () => {
-    if (!item.imageDataUrl) return;
-    const link = document.createElement('a');
-    link.href = item.imageDataUrl;
-    // Sanitize title for filename
-    const sanitizedTitle = item.title.replace(/[^a-zA-Z0-9_.-]/g, '_').substring(0, 50);
-    link.download = `${item.file.replace(/\.pdf$/i, '')}_p${item.pageNumber}_${sanitizedTitle}.jpeg`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   return (
-    <div className="bg-white border border-slate-200 shadow-sm rounded-lg p-4 transition-all hover:shadow-blue-500/10 hover:border-blue-400 flex flex-col">
-      <h3 className="text-base font-semibold text-blue-600 truncate mb-2" title={item.title}>{item.title}</h3>
-      <div className="flex-grow bg-slate-100 rounded flex items-center justify-center p-2 mb-3 min-h-48">
-        {item.imageDataUrl ? (
-          <img src={item.imageDataUrl} alt={item.title} className="max-w-full max-h-60 object-contain"/>
-        ) : (
-          <div className="text-center text-slate-500 p-4 flex flex-col items-center justify-center">
-            <ImageIcon size={32} className="mx-auto mb-2 opacity-50"/>
-            <p className="text-xs font-semibold">Image data not available</p>
-            <p className="text-xs mt-1 italic">This is chart metadata, likely from an imported JSON file.</p>
-          </div>
-        )}
-      </div>
-      <div className="flex justify-between items-center text-xs text-slate-500">
+    <div className="bg-white border border-slate-200 shadow-sm rounded-lg p-4 transition-all hover:shadow-blue-500/10 hover:border-blue-400">
+      <h3 className="text-base font-semibold text-blue-600 mb-2" title={item.title}>
+        {item.title}
+      </h3>
+      <div className="flex justify-between items-center text-sm text-slate-500">
         <span>Page: {item.pageNumber}</span>
-        <button
-          onClick={handleDownload}
-          disabled={!item.imageDataUrl}
-          className="bg-emerald-500 hover:bg-emerald-600 text-white font-medium py-1 px-3 rounded-md shadow transition-colors text-xs flex items-center space-x-1 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Download size={14} />
-          <span>Download</span>
-        </button>
       </div>
+      <p className="text-xs text-slate-400 mt-2 truncate" title={item.file}>
+        File: {item.file}
+      </p>
     </div>
   );
 };
@@ -124,19 +99,55 @@ const SourceModal: React.FC<{ source: string; onClose: () => void }> = ({ source
   );
 };
 
-export const DataDisplay: React.FC<DataDisplayProps> = ({ dataSource }) => {
+export const DataDisplay: React.FC<DataDisplayProps> = ({ dataSource, allDataSources }) => {
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [isZipping, setIsZipping] = useState(false);
+  
+  const downloadAllSourcesAsZip = async () => {
+    if (isZipping || !allDataSources || allDataSources.length === 0) return;
+    
+    setIsZipping(true);
+    
+    const zip = new JSZip();
+    
+    for (const source of allDataSources) {
+        const baseName = source.name.replace(/\.(pdf|json)$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+        const fileName = `${baseName}_${source.dataType}.json`;
+
+        const dataToExport = {
+            name: source.name,
+            dataType: source.dataType,
+            data: source.data.map((item: any) => {
+                const { id, ...rest } = item;
+                return rest;
+            })
+        };
+        
+        const jsonString = JSON.stringify(dataToExport, null, 2);
+        zip.file(fileName, jsonString);
+    }
+
+    const content = await zip.generateAsync({ type: 'blob' });
+    
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(content);
+    link.download = `financial_analyzer_export_${new Date().toISOString().split('T')[0]}.zip`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+
+    setIsZipping(false);
+  };
 
   if (dataSource.dataType === 'chart') {
     const chartData = dataSource.data as ExtractedChartItem[];
 
     const downloadChartJson = () => {
-      const metadata = chartData.map(({ imageDataUrl, ...rest }) => rest);
       const exportData = {
         name: dataSource.name,
         dataType: 'chart',
-        data: metadata,
+        data: chartData.map(({ id, ...rest }) => rest),
       };
       const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(exportData, null, 2))}`;
       const link = document.createElement('a');
@@ -146,69 +157,31 @@ export const DataDisplay: React.FC<DataDisplayProps> = ({ dataSource }) => {
       link.click();
     };
 
-    const downloadAllChartsAsZip = async () => {
-      if (isZipping) return;
-      const chartsWithImages = chartData.filter(item => item.imageDataUrl);
-      if (chartsWithImages.length === 0) {
-        alert("There are no images to download for this data source.");
-        return;
-      }
-
-      setIsZipping(true);
-      
-      const zip = new JSZip();
-      const folderName = dataSource.name.replace(/\s*\(Charts\)$/i, '').replace(/\.pdf$/i, '');
-      const chartFolder = zip.folder(folderName);
-
-      if (chartFolder) {
-        for (const item of chartsWithImages) {
-          if (item.imageDataUrl) {
-            const base64Data = item.imageDataUrl.split(',')[1];
-            const sanitizedTitle = item.title.replace(/[^a-zA-Z0-9_.-]/g, '_').substring(0, 50) || 'chart';
-            const fileName = `p${item.pageNumber}_${sanitizedTitle}.jpeg`;
-            chartFolder.file(fileName, base64Data, { base64: true });
-          }
-        }
-      }
-
-      const content = await zip.generateAsync({ type: 'blob' });
-      
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(content);
-      link.download = `${folderName}_charts.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
-
-      setIsZipping(false);
-    };
-
     return (
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800 flex items-start space-x-3 flex-grow">
               <Info size={18} className="flex-shrink-0 mt-0.5"/>
-              <span>Displaying {chartData.length} extracted charts. Use the download buttons to save the images or metadata.</span>
+              <span>Displaying {chartData.length} extracted chart titles.</span>
           </div>
           <div className="flex items-center gap-2 self-end sm:self-center">
-                <button
-                  onClick={downloadChartJson}
-                  className="bg-sky-500 hover:bg-sky-600 text-white font-medium py-2 px-4 rounded-lg shadow-md transition-colors flex items-center space-x-2"
-                  title="Download chart metadata as JSON"
-              >
-                  <FileJson size={18} />
-                  <span>JSON</span>
-              </button>
               <button
-                  onClick={downloadAllChartsAsZip}
-                  disabled={isZipping || chartData.every(c => !c.imageDataUrl)}
-                  className="bg-emerald-500 hover:bg-emerald-600 text-white font-medium py-2 px-4 rounded-lg shadow-md transition-colors flex items-center space-x-2 disabled:opacity-60 disabled:cursor-wait"
-                  title="Download all charts as a ZIP file"
-              >
-                  {isZipping ? <Spinner size="small" color="text-white"/> : <Archive size={18} />}
-                  <span>Download All (ZIP)</span>
-              </button>
+                onClick={downloadChartJson}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white font-medium py-2 px-4 rounded-lg shadow-md transition-colors flex items-center space-x-2"
+                title="Download chart metadata for this source as JSON"
+            >
+                <Download size={18} />
+                <span>Download JSON</span>
+            </button>
+            <button
+                onClick={downloadAllSourcesAsZip}
+                disabled={isZipping || !allDataSources || allDataSources.length === 0}
+                className="bg-sky-500 hover:bg-sky-600 text-white font-medium py-2 px-4 rounded-lg shadow-md transition-colors flex items-center space-x-2 disabled:opacity-60 disabled:cursor-wait"
+                title="Download all numerical and chart data sources as a ZIP file"
+            >
+                {isZipping ? <Spinner size="small" color="text-white"/> : <Archive size={18} />}
+                <span>Download All (ZIP)</span>
+            </button>
           </div>
         </div>
 
@@ -243,14 +216,30 @@ export const DataDisplay: React.FC<DataDisplayProps> = ({ dataSource }) => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-end">
-        <button
-            onClick={downloadJson}
-            className="bg-emerald-500 hover:bg-emerald-600 text-white font-medium py-2 px-4 rounded-lg shadow-md transition-colors flex items-center space-x-2"
-        >
-            <FileJson size={18} />
-            <span>Download JSON</span>
-        </button>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800 flex items-start space-x-3 flex-grow">
+              <Info size={18} className="flex-shrink-0 mt-0.5"/>
+              <span>Displaying {data.length} extracted numerical data items.</span>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-center">
+              <button
+                onClick={downloadJson}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white font-medium py-2 px-4 rounded-lg shadow-md transition-colors flex items-center space-x-2"
+                title="Download numerical data for this source as JSON"
+              >
+                  <Download size={18} />
+                  <span>Download JSON</span>
+              </button>
+              <button
+                  onClick={downloadAllSourcesAsZip}
+                  disabled={isZipping || !allDataSources || allDataSources.length === 0}
+                  className="bg-sky-500 hover:bg-sky-600 text-white font-medium py-2 px-4 rounded-lg shadow-md transition-colors flex items-center space-x-2 disabled:opacity-60 disabled:cursor-wait"
+                  title="Download all numerical and chart data sources as a ZIP file"
+              >
+                  {isZipping ? <Spinner size="small" color="text-white"/> : <Archive size={18} />}
+                  <span>Download All (ZIP)</span>
+              </button>
+          </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {data.map((item, index) => (
