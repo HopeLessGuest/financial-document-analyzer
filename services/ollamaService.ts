@@ -1,4 +1,5 @@
-import { ExtractedDataItem, PageText, ChatMessage, QuerySource } from '../types';
+
+import { ExtractedDataItem, PageText, ChatMessage, QuerySource, StructuredTemplateResponse } from '../types';
 
 const OLLAMA_BASE_URL = 'http://localhost:11434';
 const MODEL_NAME = 'gpt-oss:20b';
@@ -181,4 +182,74 @@ Provide your answer now:
   const obj = await res.json() as { response?: string };
   const text = (obj.response || '').trim();
   return text || "I received an empty response. Please try rephrasing your question or check the data.";
+};
+
+// ================ fillTemplateWithData =================
+export const fillTemplateWithData = async (
+  templateText: string,
+  allDataSources: QuerySource[],
+): Promise<StructuredTemplateResponse> => {
+  const numericalData = allDataSources.reduce((acc, source) => {
+    if (source.dataType === 'numerical' && source.data.length > 0) {
+      acc[source.name] = source.data as ExtractedDataItem[];
+    }
+    return acc;
+  }, {} as { [sourceName: string]: ExtractedDataItem[] });
+
+  let contextDataString = JSON.stringify(numericalData, null, 2);
+  if (contextDataString.length > 150000) {
+    contextDataString = contextDataString.substring(0, 150000) + "\n// ... (data truncated)";
+  }
+
+  const prompt = `
+You are an expert financial AI assistant. Your task is to fill in a user-provided template with financial data from a given JSON context. Your response MUST be ONLY the specified JSON object, with no extra text or markdown fences.
+
+**Context Data:**
+You have access to structured financial data from multiple sources, provided below in a JSON object.
+\`\`\`json
+${contextDataString}
+\`\`\`
+
+**User's Template:**
+\`\`\`
+${templateText}
+\`\`\`
+
+**Instructions & Output Structure:**
+1.  Read the User's Template and find corresponding values in the Context Data.
+2.  If you cannot find a value, insert the string "[Data Not Found]". Do not invent data.
+3.  Your final output **MUST** be a single JSON object with two keys: "filledTemplate" and "values".
+    - \`filledTemplate\`: A string containing the user's template, but with each inserted value replaced by a unique placeholder (e.g., \`{{FILL_0}}\`, \`{{FILL_1}}\`).
+    - \`values\`: An array of objects, one for each placeholder, containing:
+        - \`placeholder\`: The unique placeholder string.
+        - \`value\`: The formatted value that was inserted.
+        - \`source\`: An object detailing where the data came from, including \`name\` (metric name), \`file\`, \`page\`, \`period\`, and \`sourceText\` (the original text snippet).
+`.trim();
+
+  const payload = { model: MODEL_NAME, prompt, stream: false, format: 'json' };
+  const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errTxt = await res.text().catch(() => '');
+    throw new Error(`Ollama template filler HTTP ${res.status}. ${errTxt}`);
+  }
+
+  const obj = await res.json() as { response?: string };
+  const jsonStr = (obj.response || '').trim();
+  if (!jsonStr) throw new Error('Empty response from Ollama for template filler.');
+
+  try {
+    const parsedData = JSON.parse(jsonStr);
+    if (parsedData && typeof parsedData.filledTemplate === 'string' && Array.isArray(parsedData.values)) {
+      return parsedData as StructuredTemplateResponse;
+    } else {
+      throw new Error("AI response did not match the expected structure for template filling.");
+    }
+  } catch (e) {
+    throw new Error(`Failed to parse AI JSON for template filler. Error: ${e instanceof Error ? e.message : String(e)}`);
+  }
 };

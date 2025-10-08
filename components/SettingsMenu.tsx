@@ -1,11 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Settings, X, KeyRound, BrainCircuit, Bot } from 'lucide-react';
+import { Settings, X, KeyRound, BrainCircuit, Bot, Zap } from 'lucide-react';
+
+type GptModel = 'gpt-4o' | 'gpt-5';
 
 interface SettingsMenuProps {
-  modelProvider: 'gemini' | 'ollama';
-  onModelProviderChange: (provider: 'gemini' | 'ollama') => void;
+  modelProvider: 'gemini' | 'ollama' | 'gpt';
+  onModelProviderChange: (provider: 'gemini' | 'ollama' | 'gpt') => void;
   apiKey: string;
   onApiKeyChange: (key: string) => void;
+  gptApiKey: string;
+  onGptApiKeyChange: (key: string) => void;
+  gptModelName: GptModel;
+  onGptModelNameChange: (model: GptModel) => void;
 }
 
 export const SettingsMenu: React.FC<SettingsMenuProps> = ({
@@ -13,6 +19,10 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({
   onModelProviderChange,
   apiKey,
   onApiKeyChange,
+  gptApiKey,
+  onGptApiKeyChange,
+  gptModelName,
+  onGptModelNameChange,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -50,7 +60,7 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-2">AI Model Provider</label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={() => onModelProviderChange('gemini')}
                   className={`flex flex-col items-center justify-center p-3 border rounded-lg transition-all text-sm ${
@@ -59,6 +69,15 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({
                 >
                   <Bot size={24} className={modelProvider === 'gemini' ? 'text-blue-600' : 'text-slate-500'}/>
                   <span className="mt-1 font-semibold">Gemini</span>
+                </button>
+                <button
+                  onClick={() => onModelProviderChange('gpt')}
+                  className={`flex flex-col items-center justify-center p-3 border rounded-lg transition-all text-sm ${
+                    modelProvider === 'gpt' ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-500' : 'border-slate-300 hover:border-blue-400'
+                  }`}
+                >
+                  <Zap size={24} className={modelProvider === 'gpt' ? 'text-blue-600' : 'text-slate-500'}/>
+                  <span className="mt-1 font-semibold">GPT</span>
                 </button>
                 <button
                   onClick={() => onModelProviderChange('ollama')}
@@ -89,6 +108,46 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({
                  <p className="mt-2 text-xs text-slate-500">
                     Your key is stored in your browser's local storage.
                  </p>
+              </div>
+            )}
+            {modelProvider === 'gpt' && (
+              <div className="border-t border-slate-200 pt-4 animate-fade-in space-y-4">
+                <div className="text-xs text-slate-500 bg-slate-50 p-3 rounded-lg">
+                    <p>This provider is configured for <strong className="text-slate-700">Azure OpenAI</strong>.</p>
+                    <p className="mt-1">Endpoint: <code className="font-semibold text-slate-700">https://ae-sbx-uom.openai.azure.com/</code></p>
+                </div>
+                <div>
+                    <label htmlFor="gpt-api-key-input" className="block text-sm font-medium text-slate-600 mb-2 flex items-center">
+                    <KeyRound size={16} className="mr-2 text-slate-500" />
+                    Azure OpenAI Key
+                    </label>
+                    <input
+                    id="gpt-api-key-input"
+                    type="password"
+                    value={gptApiKey}
+                    onChange={(e) => onGptApiKeyChange(e.target.value)}
+                    placeholder="Enter your Azure Subscription Key"
+                    className="w-full bg-white border border-slate-300 text-slate-800 placeholder-slate-400 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5"
+                    />
+                    <p className="mt-2 text-xs text-slate-500">
+                        Your key is stored in your browser's local storage.
+                    </p>
+                </div>
+                 <div>
+                    <label htmlFor="gpt-model-select" className="block text-sm font-medium text-slate-600 mb-2">Deployment Name</label>
+                    <select
+                        id="gpt-model-select"
+                        value={gptModelName}
+                        onChange={(e) => onGptModelNameChange(e.target.value as GptModel)}
+                        className="w-full bg-white border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5"
+                    >
+                        <option value="gpt-4o">gpt-4o</option>
+                        <option value="gpt-5">gpt-5</option>
+                    </select>
+                    <p className="mt-2 text-xs text-slate-500">
+                      This must match the deployment name in your Azure OpenAI resource.
+                    </p>
+                </div>
               </div>
             )}
              {modelProvider === 'ollama' && (

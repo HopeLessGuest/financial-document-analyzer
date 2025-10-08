@@ -1,13 +1,15 @@
+
 import React, { useState, useCallback, useEffect } from 'react';
-import { ExtractedDataItem, ExtractedChartItem, PageText, ChatMessage, QuerySource } from './types';
+import { ExtractedDataItem, ExtractedChartItem, PageText, ChatMessage, QuerySource, StructuredTemplateResponse } from './types';
 import { FileUpload } from './components/FileUpload';
 import { JsonUpload } from './components/JsonUpload';
 import { PageRangeInput } from './components/PageRangeInput';
 import { DataDisplay } from './components/DataDisplay';
 import { Spinner } from './components/Spinner';
 import { extractTextFromPdf, renderPdfPagesToImages } from './services/pdfParser';
-import { analyzeDocument as analyzeDocumentGemini, queryExtractedData as queryExtractedDataGemini, analyzeImagesForCharts } from './services/geminiService';
+import { analyzeDocument as analyzeDocumentGemini, queryExtractedData as queryExtractedDataGemini, analyzeImagesForCharts as analyzeImagesForChartsGemini, fillTemplateWithData as fillTemplateWithDataGemini } from './services/geminiService';
 import * as ollamaService from './services/ollamaService';
+import * as gptService from './services/gptService';
 import { ChatInterface } from './components/ChatInterface';
 import { SettingsMenu } from './components/SettingsMenu';
 import { AlertTriangle, KeyRound, Info, MessageSquare, FileText, UploadCloud, Table2, Database, Trash2, ChevronDown, ListChecks, BarChart3 } from 'lucide-react';
@@ -20,14 +22,17 @@ if (typeof window !== 'undefined') {
 }
 
 type ActiveTab = 'analyze' | 'extractCharts' | 'viewData' | 'aiChat';
-type ModelProvider = 'gemini' | 'ollama';
+type ModelProvider = 'gemini' | 'ollama' | 'gpt';
+type GptModel = 'gpt-4o' | 'gpt-5';
 
 const App: React.FC = () => {
   // --- State Management ---
 
   // API Key & Model State
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || '');
+  const [gptApiKey, setGptApiKey] = useState<string>(() => localStorage.getItem('gpt_api_key') || '');
   const [modelProvider, setModelProvider] = useState<ModelProvider>(() => (localStorage.getItem('model_provider') as ModelProvider) || 'gemini');
+  const [gptModelName, setGptModelName] = useState<GptModel>(() => (localStorage.getItem('gpt_model_name') as GptModel) || 'gpt-4o');
 
   // Common state
   const [activeTab, setActiveTab] = useState<ActiveTab>('analyze');
@@ -66,12 +71,23 @@ const App: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [isTemplateMode, setIsTemplateMode] = useState<boolean>(false);
 
   // --- Handlers & Effects ---
 
   const handleApiKeyChange = (newKey: string) => {
     setApiKey(newKey);
     localStorage.setItem('gemini_api_key', newKey);
+  };
+  
+  const handleGptApiKeyChange = (newKey: string) => {
+    setGptApiKey(newKey);
+    localStorage.setItem('gpt_api_key', newKey);
+  };
+  
+  const handleGptModelNameChange = (model: GptModel) => {
+    setGptModelName(model);
+    localStorage.setItem('gpt_model_name', model);
   };
 
   const handleModelProviderChange = (provider: ModelProvider) => {
@@ -225,6 +241,10 @@ const App: React.FC = () => {
       setNumericalProcessingError('Please enter your Gemini API Key in the settings menu.');
       return;
     }
+    if (modelProvider === 'gpt' && !gptApiKey) {
+      setNumericalProcessingError('Please enter your OpenAI API Key in the settings menu.');
+      return;
+    }
     
     setNumericalProcessingLoading(true);
     setNumericalProcessingError(null);
@@ -243,10 +263,17 @@ const App: React.FC = () => {
       setNumericalProcessingInfoMessage(`Text extracted from ${pageTexts.length} page(s). Analyzing with AI (${modelProvider})...`);
 
       let data: ExtractedDataItem[];
-      if (modelProvider === 'gemini') {
-        data = await analyzeDocumentGemini(pageTexts, pdfFileNameToAnalyze, apiKey);
-      } else {
-        data = await ollamaService.analyzeDocument(pageTexts, pdfFileNameToAnalyze);
+      switch (modelProvider) {
+        case 'gemini':
+          data = await analyzeDocumentGemini(pageTexts, pdfFileNameToAnalyze, apiKey);
+          break;
+        case 'gpt':
+          data = await gptService.analyzeDocument(pageTexts, pdfFileNameToAnalyze, gptApiKey, gptModelName);
+          break;
+        case 'ollama':
+        default:
+          data = await ollamaService.analyzeDocument(pageTexts, pdfFileNameToAnalyze);
+          break;
       }
       
       setNumericalProcessingProgress(100);
@@ -273,19 +300,23 @@ const App: React.FC = () => {
     } finally {
       setNumericalProcessingLoading(false);
     }
-  }, [pdfFileToAnalyze, pdfFileNameToAnalyze, numericalPageRange, apiKey, modelProvider]);
+  }, [pdfFileToAnalyze, pdfFileNameToAnalyze, numericalPageRange, apiKey, gptApiKey, gptModelName, modelProvider]);
 
   const handleChartExtractionSubmit = useCallback(async () => {
     if (modelProvider === 'ollama') {
-        setChartProcessingError("Chart extraction is not supported with the Ollama model. Please switch to Gemini in the settings menu.");
+        setChartProcessingError("Chart extraction is not supported with the Ollama model. Please switch to a different provider in settings.");
         return;
     }
     if (!chartFileToAnalyze) {
       setChartProcessingError('Please upload a PDF file.');
       return;
     }
-    if (!apiKey) {
+    if (modelProvider === 'gemini' && !apiKey) {
       setChartProcessingError('Please enter your Gemini API Key in the settings menu.');
+      return;
+    }
+    if (modelProvider === 'gpt' && !gptApiKey) {
+      setChartProcessingError('Please enter your OpenAI API Key in the settings menu.');
       return;
     }
     
@@ -304,10 +335,17 @@ const App: React.FC = () => {
         throw new Error('Could not render any pages from the PDF. Please check the page range or file.');
       }
       
-      const chartMetadatas = await analyzeImagesForCharts(pageImages, apiKey, (progress, message) => {
+      let chartMetadatas;
+      const onProgress = (progress: number, message: string) => {
         setChartProcessingProgress(50 + progress * 0.5); // AI Analysis is 50%
         setChartProcessingInfoMessage(message);
-      });
+      };
+
+      if (modelProvider === 'gemini') {
+        chartMetadatas = await analyzeImagesForChartsGemini(pageImages, apiKey, onProgress);
+      } else { // GPT
+        chartMetadatas = await gptService.analyzeImagesForCharts(pageImages, gptApiKey, gptModelName, onProgress);
+      }
 
       const extractedCharts: ExtractedChartItem[] = chartMetadatas.map(metadata => ({
           ...metadata,
@@ -339,7 +377,7 @@ const App: React.FC = () => {
     } finally {
       setChartProcessingLoading(false);
     }
-  }, [chartFileToAnalyze, chartFileNameToAnalyze, chartPageRange, apiKey, modelProvider]);
+  }, [chartFileToAnalyze, chartFileNameToAnalyze, chartPageRange, apiKey, gptApiKey, gptModelName, modelProvider]);
 
 
   const handleSendChatMessage = useCallback(async (messageText: string) => {
@@ -362,15 +400,45 @@ const App: React.FC = () => {
     setChatError(null);
 
     try {
-      let aiResponseText: string;
-      if (modelProvider === 'gemini') {
-          aiResponseText = await queryExtractedDataGemini(messageText, numericalDataSources, updatedChatMessages, apiKey);
+       if (isTemplateMode) {
+        let templateResponse: StructuredTemplateResponse;
+        switch (modelProvider) {
+          case 'gemini':
+            templateResponse = await fillTemplateWithDataGemini(messageText, numericalDataSources, apiKey);
+            break;
+          case 'gpt':
+            templateResponse = await gptService.fillTemplateWithData(messageText, numericalDataSources, gptApiKey, gptModelName);
+            break;
+          case 'ollama':
+          default:
+            templateResponse = await ollamaService.fillTemplateWithData(messageText, numericalDataSources);
+            break;
+        }
+        const newAiMessage: ChatMessage = {
+          id: uuidv4(),
+          sender: 'ai',
+          text: 'Here is your filled template. Click on highlighted values to see their source.',
+          templateResponse: templateResponse,
+          timestamp: Date.now()
+        };
+        setChatMessages(prev => [...prev, newAiMessage]);
       } else {
-          aiResponseText = await ollamaService.queryExtractedData(messageText, numericalDataSources, updatedChatMessages);
+        let aiResponseText: string;
+         switch (modelProvider) {
+          case 'gemini':
+            aiResponseText = await queryExtractedDataGemini(messageText, numericalDataSources, updatedChatMessages, apiKey);
+            break;
+          case 'gpt':
+            aiResponseText = await gptService.queryExtractedData(messageText, numericalDataSources, updatedChatMessages, gptApiKey, gptModelName);
+            break;
+          case 'ollama':
+          default:
+            aiResponseText = await ollamaService.queryExtractedData(messageText, numericalDataSources, updatedChatMessages);
+            break;
+        }
+        const newAiMessage: ChatMessage = { id: uuidv4(), sender: 'ai', text: aiResponseText, timestamp: Date.now() };
+        setChatMessages(prev => [...prev, newAiMessage]);
       }
-      
-      const newAiMessage: ChatMessage = { id: uuidv4(), sender: 'ai', text: aiResponseText, timestamp: Date.now() };
-      setChatMessages(prev => [...prev, newAiMessage]);
     } catch (err) {
       const chatErrorMessage = err instanceof Error ? err.message : String(err);
       setChatError(`Chat error: ${chatErrorMessage}`);
@@ -379,7 +447,7 @@ const App: React.FC = () => {
     } finally {
       setIsChatLoading(false);
     }
-  }, [dataSources, chatMessages, apiKey, modelProvider]); 
+  }, [dataSources, chatMessages, apiKey, gptApiKey, gptModelName, modelProvider, isTemplateMode]); 
 
   const handleRemoveActiveDataSource = () => {
     if (!activeDataSourceId) return;
@@ -388,13 +456,15 @@ const App: React.FC = () => {
   
   const getChatContextInfo = (): string => {
     const numericalSources = dataSources.filter(ds => ds.dataType === 'numerical');
+    const providerName = modelProvider.charAt(0).toUpperCase() + modelProvider.slice(1);
+
     if (numericalSources.length === 0) {
-      return "No numerical data sources available for chat.";
+      return `No numerical data sources available for chat. (Provider: ${providerName})`;
     }
     if (numericalSources.length === 1) {
-      return `Querying numerical data from: ${numericalSources[0].name} (using ${modelProvider})`;
+      return `Querying numerical data from: ${numericalSources[0].name} (using ${providerName})`;
     }
-    return `Querying numerical data from all ${numericalSources.length} available sources (using ${modelProvider}).`;
+    return `Querying numerical data from all ${numericalSources.length} available sources (using ${providerName}).`;
   };
 
   const TabButton: React.FC<{tabId: ActiveTab; currentTab: ActiveTab; onClick: (tabId: ActiveTab) => void; children: React.ReactNode;}> = 
@@ -430,6 +500,10 @@ const App: React.FC = () => {
                 onModelProviderChange={handleModelProviderChange}
                 apiKey={apiKey}
                 onApiKeyChange={handleApiKeyChange}
+                gptApiKey={gptApiKey}
+                onGptApiKeyChange={handleGptApiKeyChange}
+                gptModelName={gptModelName}
+                onGptModelNameChange={handleGptModelNameChange}
             />
         </div>
       </header>
@@ -473,7 +547,7 @@ const App: React.FC = () => {
                 {modelProvider === 'ollama' && (
                     <div role="alert" className="mb-6 p-4 bg-amber-50 border-amber-200 text-amber-800 rounded-lg flex items-center space-x-3">
                         <AlertTriangle size={20} className="flex-shrink-0" />
-                        <span>Chart extraction is a multimodal feature only available with Gemini. Please switch models in the settings to use this tab.</span>
+                        <span>Chart extraction is a multimodal feature only available with Gemini or GPT. Please switch models in the settings to use this tab.</span>
                     </div>
                 )}
               <div className="space-y-6">
@@ -542,7 +616,15 @@ const App: React.FC = () => {
               </div>
               
               {dataSources.filter(ds=>ds.dataType === 'numerical' && ds.data.length > 0).length > 0 ? (
-                <ChatInterface messages={chatMessages} onSendMessage={handleSendChatMessage} isLoading={isChatLoading} error={chatError} chatContextInfo={getChatContextInfo()} />
+                <ChatInterface 
+                  messages={chatMessages} 
+                  onSendMessage={handleSendChatMessage} 
+                  isLoading={isChatLoading} 
+                  error={chatError} 
+                  chatContextInfo={getChatContextInfo()}
+                  isTemplateMode={isTemplateMode}
+                  onSetIsTemplateMode={setIsTemplateMode}
+                />
               ) : (
                  <div className="text-center p-8 bg-slate-50 rounded-lg border border-slate-200"><Info size={40} className="mx-auto text-blue-500 mb-4" /><p className="text-slate-700 text-lg">No numerical data available for chat.</p><p className="text-slate-500">Please add a 'numerical' data source with content to begin chatting.</p></div>
               )}

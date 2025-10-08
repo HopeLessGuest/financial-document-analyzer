@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
-import { ExtractedDataItem, PageText, ChatMessage, QuerySource, ExtractedChartItem } from '../types';
+import { ExtractedDataItem, PageText, ChatMessage, QuerySource, ExtractedChartItem, StructuredTemplateResponse } from '../types';
 
 export const analyzeDocument = async (
   pageTexts: PageText[],
@@ -338,5 +338,116 @@ Provide your answer to the "Current User Question" below:
          throw new Error('Invalid Gemini API Key for chat. Please check the key you entered.');
     }
     throw new Error(`An error occurred while trying to answer your question with AI. Details: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+
+export const fillTemplateWithData = async (
+  templateText: string,
+  allDataSources: QuerySource[],
+  apiKey: string
+): Promise<StructuredTemplateResponse> => {
+  if (!apiKey) {
+    throw new Error("Gemini API Key is not provided for this feature.");
+  }
+  const ai = new GoogleGenAI({ apiKey });
+
+  const numericalData = allDataSources.reduce((acc, source) => {
+    if (source.dataType === 'numerical' && source.data.length > 0) {
+      acc[source.name] = source.data as ExtractedDataItem[];
+    }
+    return acc;
+  }, {} as { [sourceName: string]: ExtractedDataItem[] });
+
+  let contextDataString = JSON.stringify(numericalData, null, 2);
+  if (contextDataString.length > 150000) {
+    contextDataString = contextDataString.substring(0, 150000) + "\n// ... (data truncated)";
+  }
+
+  const prompt = `
+You are an expert financial AI assistant. Your task is to fill in a user-provided template with financial data from a given JSON context.
+
+**Context Data:**
+You have access to structured financial data from multiple sources, provided below in a JSON object.
+\`\`\`json
+${contextDataString}
+\`\`\`
+
+**User's Template:**
+\`\`\`
+${templateText}
+\`\`\`
+
+**Instructions:**
+1.  Read the User's Template carefully.
+2.  Find the corresponding values for the metrics mentioned in the template from the Context Data.
+3.  Replace the placeholders or sentences in the template with the values you find.
+4.  For every value you insert, you **MUST** provide its source.
+5.  If you cannot find a specific value in the context data, you MUST insert the string "[Data Not Found]". Do not invent data.
+6.  Your final output **MUST** be a single JSON object that strictly adheres to the provided response schema. Do not include any other text or markdown.
+
+**Output Structure:**
+Your response must be a JSON object with two keys: "filledTemplate" and "values".
+- \`filledTemplate\`: This string contains the user's template, but with each value you inserted replaced by a unique placeholder (e.g., \`{{FILL_0}}\`, \`{{FILL_1}}\`, etc.).
+- \`values\`: This is an array of objects. Each object corresponds to a placeholder in \`filledTemplate\` and contains:
+    - \`placeholder\`: The unique placeholder string.
+    - \`value\`: The formatted numerical or text value that was inserted.
+    - \`source\`: An object detailing where the data came from, including \`name\` (metric name), \`file\`, \`page\`, \`period\`, and \`sourceText\` (the original text snippet).
+`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            filledTemplate: {
+              type: Type.STRING,
+              description: "The user's template with placeholders like {{FILL_0}}, {{FILL_1}} for each inserted value."
+            },
+            values: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  placeholder: { type: Type.STRING, description: "The placeholder used in filledTemplate, e.g., '{{FILL_0}}'." },
+                  value: { type: Type.STRING, description: "The formatted value that was inserted, e.g., '1,234.56'." },
+                  source: {
+                    type: Type.OBJECT,
+                    properties: {
+                      name: { type: Type.STRING, description: "The name of the metric, e.g., 'Total Revenue'." },
+                      file: { type: Type.STRING, description: "The source file name." },
+                      page: { type: Type.INTEGER, description: "The page number in the source file." },
+                      period: { type: Type.STRING, description: "The financial period, e.g., '2023'." },
+                      sourceText: { type: Type.STRING, description: "The original text snippet from the document."}
+                    },
+                    required: ['name', 'file', 'page', 'period', 'sourceText']
+                  }
+                },
+                required: ['placeholder', 'value', 'source']
+              }
+            }
+          },
+          required: ['filledTemplate', 'values']
+        },
+        temperature: 0.1,
+      }
+    });
+
+    const jsonStr = response.text.trim();
+    const parsedData = JSON.parse(jsonStr);
+
+    if (parsedData && typeof parsedData.filledTemplate === 'string' && Array.isArray(parsedData.values)) {
+      return parsedData as StructuredTemplateResponse;
+    } else {
+      throw new Error("AI response did not match the expected structure for template filling.");
+    }
+
+  } catch (error) {
+    console.error("Error calling Gemini API for template filling:", error);
+    throw new Error(`An error occurred while trying to fill the template. Details: ${error instanceof Error ? error.message : String(error)}`);
   }
 };
