@@ -491,7 +491,7 @@ const App: React.FC = () => {
             Financial Document Analyzer
             </h1>
             <p className="mt-3 text-slate-600 text-lg">
-            Extract, view, and query structured data from PDFs or your JSON files using AI.
+            Extract, view, and query PDFs data with AI.
             </p>
         </div>
         <div className="absolute top-0 right-0">
