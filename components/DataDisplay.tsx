@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import JSZip from 'jszip';
 import { ExtractedDataItem, ExtractedChartItem, QuerySource } from '../types';
@@ -103,6 +104,35 @@ export const DataDisplay: React.FC<DataDisplayProps> = ({ dataSource, allDataSou
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [isZipping, setIsZipping] = useState(false);
   
+  const getPageRangeSuffix = (data: (ExtractedDataItem | ExtractedChartItem)[]): string => {
+    if (dataSource.type !== 'pdf') {
+      return '';
+    }
+
+    const pageNumbers = data
+      .map(item => 'page' in item ? item.page : item.pageNumber)
+      .filter(p => typeof p === 'number' && p > 0);
+
+    if (pageNumbers.length === 0) {
+      return '';
+    }
+
+    const uniquePages = [...new Set(pageNumbers)].sort((a, b) => a - b);
+    
+    if (uniquePages.length === 0) {
+        return '';
+    }
+
+    if (uniquePages.length === 1) {
+        return `_P${uniquePages[0]}`;
+    }
+    
+    const minPage = uniquePages[0];
+    const maxPage = uniquePages[uniquePages.length - 1];
+    
+    return `_P${minPage}-${maxPage}`;
+  };
+
   const downloadAllSourcesAsZip = async () => {
     if (isZipping || !allDataSources || allDataSources.length === 0) return;
     
@@ -153,7 +183,8 @@ export const DataDisplay: React.FC<DataDisplayProps> = ({ dataSource, allDataSou
       const link = document.createElement('a');
       link.href = jsonString;
       const fileName = dataSource.name.replace(/\s*\(Charts\)$/i, '').replace(/\.pdf$/i, '');
-      link.download = `${fileName}_charts_metadata.json`;
+      const pageSuffix = getPageRangeSuffix(chartData);
+      link.download = `${fileName}_charts${pageSuffix}.json`;
       link.click();
     };
 
@@ -209,8 +240,10 @@ export const DataDisplay: React.FC<DataDisplayProps> = ({ dataSource, allDataSou
 
     let intelligentFilenamePrefix = dataSource.name.replace(/\.(pdf|json)$/i, '') || 'extracted_data';
     intelligentFilenamePrefix = intelligentFilenamePrefix.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 50);
+    
+    const pageSuffix = getPageRangeSuffix(data);
 
-    link.download = `${intelligentFilenamePrefix}_${new Date().toISOString().split('T')[0]}.json`;
+    link.download = `${intelligentFilenamePrefix}${pageSuffix}.json`;
     link.click();
   };
 
