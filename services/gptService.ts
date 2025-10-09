@@ -94,7 +94,7 @@ export const analyzeImagesForCharts = async (
 
   const allExtractedCharts: Omit<ExtractedChartItem, 'id' | 'file'>[] = [];
 
-  const systemPrompt = `You are an expert at identifying visual data representations in financial documents. Analyze the image. Identify all visual charts and graphs and extract their titles (bar charts, line graphs, pie charts, etc.). DO NOT extract simple tables. For each chart, provide its title. If a chart has no visible title, provide a concise, descriptive name. Your response MUST be a JSON object with a single key "charts", which contains an array of objects, each with a "title" key. If no charts are found, return an empty "charts" array.`;
+  const systemPrompt = `You are an expert at identifying visual data representations in financial documents. Analyze the image. Identify all visual charts and graphs (bar charts, line graphs, pie charts, etc.). DO NOT extract simple tables. For each chart, provide its title and type. If a chart has no visible title, provide a concise, descriptive name. For 'chartType', use a simple classification like "Bar Chart", "Line Graph", "Pie Chart", or "Mixed Type". Your response MUST be a JSON object with a single key "charts", which contains an array of objects, each with a "title" and "chartType" key. If no charts are found, return an empty "charts" array.`;
 
   for (let i = 0; i < pageImages.length; i++) {
     const pageImage = pageImages[i];
@@ -119,13 +119,14 @@ export const analyzeImagesForCharts = async (
     try {
         const data = await callAzureGptApi(payload, apiKey, modelName);
         const content = JSON.parse(data.choices[0].message.content);
-        const parsed = content as { charts?: { title: string }[] };
+        const parsed = content as { charts?: { title: string; chartType: string; }[] };
          if (parsed.charts && Array.isArray(parsed.charts)) {
             parsed.charts.forEach(chartInfo => {
                 if (chartInfo.title && chartInfo.title.trim().length > 0) {
                     allExtractedCharts.push({
                         pageNumber: pageImage.pageNumber,
                         title: chartInfo.title,
+                        chartType: chartInfo.chartType || 'Unknown',
                     });
                 }
             });
@@ -180,7 +181,7 @@ export const queryExtractedData = async (
 
   const systemPrompt = `You are an AI assistant specialized in answering questions about financial data.
 Answer the user's question based ONLY on the provided JSON data context, which contains 'numericalData' and 'chartData'.
-For questions about charts, refer to the 'chartData' which has titles and page numbers.
+For questions about charts, refer to the 'chartData' which has titles, types, and page numbers.
 If information is missing, state that clearly.
 If you perform calculations, use 'numericalData' and show the basic calculation.
 Mention source names when citing data.
