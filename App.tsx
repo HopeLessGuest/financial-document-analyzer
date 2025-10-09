@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useEffect } from 'react';
 import { ExtractedDataItem, ExtractedChartItem, PageText, ChatMessage, QuerySource, StructuredTemplateResponse } from './types';
 import { FileUpload } from './components/FileUpload';
@@ -381,15 +382,18 @@ const App: React.FC = () => {
 
 
   const handleSendChatMessage = useCallback(async (messageText: string) => {
-    const numericalDataSources = dataSources.filter(ds => ds.dataType === 'numerical');
-    
-    if (!messageText.trim() || numericalDataSources.length === 0) {
-        setChatError(numericalDataSources.length === 0 ? "Cannot send message: No numerical data sources are available." : null);
+    if (!messageText.trim()) return;
+
+    const availableDataSources = dataSources.filter(ds => ds.data.length > 0);
+    if (availableDataSources.length === 0) {
+        setChatError("Cannot send message: No data sources with content are available.");
         return;
     }
-    const allSourcesEmpty = numericalDataSources.every(ds => ds.data.length === 0);
-    if (allSourcesEmpty) {
-        setChatError("Cannot send message: All available numerical data sources are empty.");
+
+    const numericalDataSources = dataSources.filter(ds => ds.dataType === 'numerical' && ds.data.length > 0);
+
+    if (isTemplateMode && numericalDataSources.length === 0) {
+        setChatError("Template Mode requires at least one numerical data source with content.");
         return;
     }
 
@@ -426,14 +430,14 @@ const App: React.FC = () => {
         let aiResponseText: string;
          switch (modelProvider) {
           case 'gemini':
-            aiResponseText = await queryExtractedDataGemini(messageText, numericalDataSources, updatedChatMessages, apiKey);
+            aiResponseText = await queryExtractedDataGemini(messageText, availableDataSources, updatedChatMessages, apiKey);
             break;
           case 'gpt':
-            aiResponseText = await gptService.queryExtractedData(messageText, numericalDataSources, updatedChatMessages, gptApiKey, gptModelName);
+            aiResponseText = await gptService.queryExtractedData(messageText, availableDataSources, updatedChatMessages, gptApiKey, gptModelName);
             break;
           case 'ollama':
           default:
-            aiResponseText = await ollamaService.queryExtractedData(messageText, numericalDataSources, updatedChatMessages);
+            aiResponseText = await ollamaService.queryExtractedData(messageText, availableDataSources, updatedChatMessages);
             break;
         }
         const newAiMessage: ChatMessage = { id: uuidv4(), sender: 'ai', text: aiResponseText, timestamp: Date.now() };
@@ -455,16 +459,23 @@ const App: React.FC = () => {
   };
   
   const getChatContextInfo = (): string => {
-    const numericalSources = dataSources.filter(ds => ds.dataType === 'numerical');
+    const numericalSourcesCount = dataSources.filter(ds => ds.dataType === 'numerical' && ds.data.length > 0).length;
+    const chartSourcesCount = dataSources.filter(ds => ds.dataType === 'chart' && ds.data.length > 0).length;
     const providerName = modelProvider.charAt(0).toUpperCase() + modelProvider.slice(1);
 
-    if (numericalSources.length === 0) {
-      return `No numerical data sources available for chat. (Provider: ${providerName})`;
+    const parts: string[] = [];
+    if (numericalSourcesCount > 0) {
+      parts.push(`${numericalSourcesCount} numerical source${numericalSourcesCount > 1 ? 's' : ''}`);
     }
-    if (numericalSources.length === 1) {
-      return `Querying numerical data from: ${numericalSources[0].name} (using ${providerName})`;
+    if (chartSourcesCount > 0) {
+      parts.push(`${chartSourcesCount} chart source${chartSourcesCount > 1 ? 's' : ''}`);
     }
-    return `Querying numerical data from all ${numericalSources.length} available sources (using ${providerName}).`;
+
+    if (parts.length === 0) {
+      return `No data sources available for chat. (Provider: ${providerName})`;
+    }
+
+    return `Querying ${parts.join(' and ')} (using ${providerName}).`;
   };
 
   const TabButton: React.FC<{tabId: ActiveTab; currentTab: ActiveTab; onClick: (tabId: ActiveTab) => void; children: React.ReactNode;}> = 
@@ -609,13 +620,13 @@ const App: React.FC = () => {
               <h2 id="ai-chat-section-title" className="text-2xl font-semibold text-slate-800 mb-6">AI Chat</h2>
               <div className="mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
                 <h3 className="text-lg font-semibold text-blue-600 mb-3 flex items-center"><ListChecks size={20} className="mr-2"/> Data Sources for Chat Context</h3>
-                 <p className="text-sm text-slate-500 mb-3">The AI will only query sources with 'numerical' data. Click a source to view its details.</p>
+                 <p className="text-sm text-slate-500 mb-3">The AI chat will use all available data sources. Template mode requires numerical data. Click a source to view its details.</p>
                 {dataSources.length > 0 ? (
                     <ul className="space-y-2 max-h-40 overflow-y-auto pr-2">{dataSources.map(src => (<li key={src.id}><button onClick={() => { setActiveDataSourceId(src.id); setActiveTab('viewData'); }} className="w-full text-left p-2.5 rounded-lg text-sm transition-colors duration-150 bg-white border border-blue-500 text-blue-600 font-medium shadow-sm hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">{src.name} ({src.dataType}, {src.data.length} items)</button></li>))}</ul>
                 ) : (<p className="text-slate-500 text-sm">No data sources available.</p>)}
               </div>
               
-              {dataSources.filter(ds=>ds.dataType === 'numerical' && ds.data.length > 0).length > 0 ? (
+              {dataSources.some(ds => ds.data.length > 0) ? (
                 <ChatInterface 
                   messages={chatMessages} 
                   onSendMessage={handleSendChatMessage} 
@@ -626,7 +637,7 @@ const App: React.FC = () => {
                   onSetIsTemplateMode={setIsTemplateMode}
                 />
               ) : (
-                 <div className="text-center p-8 bg-slate-50 rounded-lg border border-slate-200"><Info size={40} className="mx-auto text-blue-500 mb-4" /><p className="text-slate-700 text-lg">No numerical data available for chat.</p><p className="text-slate-500">Please add a 'numerical' data source with content to begin chatting.</p></div>
+                 <div className="text-center p-8 bg-slate-50 rounded-lg border border-slate-200"><Info size={40} className="mx-auto text-blue-500 mb-4" /><p className="text-slate-700 text-lg">No data available for chat.</p><p className="text-slate-500">Please add a data source with content to begin chatting.</p></div>
               )}
             </section>
           )}

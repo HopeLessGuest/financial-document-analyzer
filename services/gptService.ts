@@ -151,14 +151,24 @@ export const queryExtractedData = async (
 ): Promise<string> => {
   if (!apiKey) throw new Error("Azure OpenAI API Key is not provided.");
 
-  const numericalDataSources = allDataSources.filter(ds => ds.dataType === 'numerical' && ds.data.length > 0);
-  if (numericalDataSources.length === 0) {
+  if (allDataSources.length === 0) {
     return "I don't have any data sources to query.";
   }
 
-  const contextData: { [sourceName: string]: ExtractedDataItem[] } = {};
-  numericalDataSources.forEach(source => {
-    contextData[source.name] = source.data as ExtractedDataItem[];
+  const contextData: {
+    numericalData: { [sourceName: string]: ExtractedDataItem[] };
+    chartData: { [sourceName: string]: Omit<ExtractedChartItem, 'id'>[] };
+  } = {
+    numericalData: {},
+    chartData: {},
+  };
+
+  allDataSources.forEach(source => {
+    if (source.dataType === 'numerical' && source.data.length > 0) {
+      contextData.numericalData[source.name] = source.data as ExtractedDataItem[];
+    } else if (source.dataType === 'chart' && source.data.length > 0) {
+      contextData.chartData[source.name] = (source.data as ExtractedChartItem[]).map(({ id, ...rest }) => rest);
+    }
   });
 
   let contextDataString = JSON.stringify(contextData, null, 2);
@@ -168,11 +178,12 @@ export const queryExtractedData = async (
     isTruncated = true;
   }
 
-  const systemPrompt = `You are an AI assistant specialized in answering questions about financial data from multiple sources.
-Answer the user's question based ONLY on the provided JSON data context.
-If information is missing or might be truncated, state that clearly.
-If you perform calculations, show the basic calculation.
-Mention the source names (e.g., 'file.pdf') when citing data.
+  const systemPrompt = `You are an AI assistant specialized in answering questions about financial data.
+Answer the user's question based ONLY on the provided JSON data context, which contains 'numericalData' and 'chartData'.
+For questions about charts, refer to the 'chartData' which has titles and page numbers.
+If information is missing, state that clearly.
+If you perform calculations, use 'numericalData' and show the basic calculation.
+Mention source names when citing data.
 Respond in a natural, conversational language. Use Markdown for formatting.
 ${isTruncated ? "Important Note: The provided JSON data has been truncated. Your information might be incomplete." : ""}`;
 

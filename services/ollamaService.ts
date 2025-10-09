@@ -1,5 +1,6 @@
 
-import { ExtractedDataItem, PageText, ChatMessage, QuerySource, StructuredTemplateResponse } from '../types';
+
+import { ExtractedDataItem, PageText, ChatMessage, QuerySource, StructuredTemplateResponse, ExtractedChartItem } from '../types';
 
 const OLLAMA_BASE_URL = 'http://localhost:11434';
 const MODEL_NAME = 'gpt-oss:20b';
@@ -121,12 +122,23 @@ export const queryExtractedData = async (
     return "I don't have any data sources to query. Please add a document or JSON file.";
   }
   
-  const numericalDataSources = allDataSources.filter(ds => ds.dataType === 'numerical' && ds.data.length > 0);
+  const contextData: {
+    numericalData: { [sourceName: string]: ExtractedDataItem[] };
+    chartData: { [sourceName: string]: Omit<ExtractedChartItem, 'id'>[] };
+  } = {
+    numericalData: {},
+    chartData: {},
+  };
 
-  const bag: { [name: string]: ExtractedDataItem[] } = {};
-  numericalDataSources.forEach(s => { bag[s.name] = s.data as ExtractedDataItem[]; });
+  allDataSources.forEach(source => {
+    if (source.dataType === 'numerical' && source.data.length > 0) {
+      contextData.numericalData[source.name] = source.data as ExtractedDataItem[];
+    } else if (source.dataType === 'chart' && source.data.length > 0) {
+      contextData.chartData[source.name] = (source.data as ExtractedChartItem[]).map(({ id, ...rest }) => rest);
+    }
+  });
 
-  let ctx = JSON.stringify(bag, null, 2);
+  let ctx = JSON.stringify(contextData, null, 2);
   const MAX = 150000;
   let isTrunc = false;
   if (ctx.length > MAX) {
@@ -134,7 +146,7 @@ export const queryExtractedData = async (
     isTrunc = true;
   }
 
-  const srcDesc = numericalDataSources.map(s => `- "${s.name}" (type: ${s.type}, items: ${s.data.length})`).join('\n');
+  const srcDesc = allDataSources.map(s => `- "${s.name}" (type: ${s.dataType}, items: ${s.data.length})`).join('\n');
 
   const recent = chatHistory.slice(-10);
   let hist = "Conversation History (most recent first):\n";
@@ -149,7 +161,7 @@ You are an AI assistant specialized in answering questions about financial data 
 You have access to data from the following sources:
 ${srcDesc}
 
-The structured data from these sources is provided below in a JSON object:
+The structured data from these sources is provided below in a JSON object with 'numericalData' and 'chartData' keys:
 \`\`\`json
 ${ctx}
 \`\`\`
@@ -159,11 +171,12 @@ ${hist}
 Current User Question: "${question}"
 
 Instructions:
-1) Answer ONLY using the provided JSON. Do not invent facts.
+1) Answer ONLY using the provided JSON. This includes numerical and chart data.
 2) If info is missing (or truncated), say so explicitly.
-3) If calculating (sum/avg/% change), show the simple calculation.
-4) Mention source names when citing facts (and bankName/documentType if available).
-5) Respond concisely in natural language; Markdown allowed for clarity.
+3) If calculating (sum/avg/% change), use the 'numericalData' and show the simple calculation.
+4) For questions about charts, use 'chartData' which contains titles and page numbers.
+5) Mention source names when citing facts (and bankName/documentType if available).
+6) Respond concisely in natural language; Markdown allowed for clarity.
 Provide your answer now:
 `.trim();
 

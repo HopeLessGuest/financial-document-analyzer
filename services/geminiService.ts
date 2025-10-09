@@ -1,4 +1,5 @@
 
+
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import { ExtractedDataItem, PageText, ChatMessage, QuerySource, ExtractedChartItem, StructuredTemplateResponse } from '../types';
 
@@ -243,19 +244,27 @@ export const queryExtractedData = async (
   }
   const ai = new GoogleGenAI({ apiKey });
 
-
   if (allDataSources.length === 0) {
     return "I don't have any data sources to query. Please add a document or JSON file.";
   }
   
-  const allSourcesDataForPrompt: { [sourceName: string]: ExtractedDataItem[] } = {};
+  const contextDataForPrompt: {
+    numericalData: { [sourceName: string]: ExtractedDataItem[] };
+    chartData: { [sourceName: string]: Omit<ExtractedChartItem, 'id'>[] };
+  } = {
+    numericalData: {},
+    chartData: {},
+  };
+
   allDataSources.forEach(source => {
-    if (source.dataType === 'numerical') { // Only include numerical data
-        allSourcesDataForPrompt[source.name] = source.data as ExtractedDataItem[];
+    if (source.dataType === 'numerical' && source.data.length > 0) {
+      contextDataForPrompt.numericalData[source.name] = source.data as ExtractedDataItem[];
+    } else if (source.dataType === 'chart' && source.data.length > 0) {
+      contextDataForPrompt.chartData[source.name] = (source.data as ExtractedChartItem[]).map(({ id, ...rest }) => rest);
     }
   });
 
-  let contextDataString = JSON.stringify(allSourcesDataForPrompt, null, 2);
+  let contextDataString = JSON.stringify(contextDataForPrompt, null, 2);
   const maxContextLength = 150000; // Max length for the stringified JSON data context
   let isTruncated = false;
 
@@ -267,8 +276,7 @@ export const queryExtractedData = async (
   }
   
   const sourceDescriptions = allDataSources
-    .filter(s => s.dataType === 'numerical')
-    .map(s => `- "${s.name}" (type: ${s.type}, items: ${s.data.length})`)
+    .map(s => `- "${s.name}" (type: ${s.dataType}, items: ${s.data.length})`)
     .join('\n');
 
   const recentHistory = chatHistory.slice(-10); 
@@ -283,10 +291,10 @@ export const queryExtractedData = async (
   
   const prompt = `
 You are an AI assistant specialized in answering questions about financial data from multiple sources.
-You have access to data from the following sources containing numerical data:
+You have access to data from the following sources:
 ${sourceDescriptions}
 
-The structured data from these sources is provided below in a JSON object format. The keys of this object are the source names, and the values are arrays of data items extracted from that source.
+The structured data from these sources is provided below in a JSON object format. This object contains 'numericalData' and 'chartData'.
 \`\`\`json
 ${contextDataString}
 \`\`\`
@@ -296,14 +304,15 @@ ${formattedChatHistory}
 Current User Question: "${question}"
 
 Instructions for your response:
-1.  Carefully analyze the user's current question, the conversation history, and the provided JSON data from ALL sources.
+1.  Carefully analyze the user's current question, the conversation history, and the provided JSON data (both numerical and chart data).
 2.  Answer the question directly and concisely using only the information found in the provided JSON data.
-3.  If information comes from a specific source or sources, please mention the source name(s) (e.g., "According to 'Source X'..." or "Combining data from 'Source X' and 'Source Y'..."). This includes mentioning bankName and documentType if relevant and available for a source.
-4.  If the information needed to answer the question is not present in any of the provided data sources (or might be missing due to truncation if indicated), explicitly state that (e.g., "I could not find information about Z in the available data sources." or "The information for Z might be incomplete due to data truncation.").
-5.  If the question requires a calculation (e.g., sum, difference, average, percentage change) across one or multiple sources, perform the calculation using the relevant data points from the JSON and state the result. Show the basic calculation if it's simple and helpful.
-6.  Do not make up information or use any external knowledge. Your knowledge is strictly limited to the JSON data provided.
-7.  Respond in a natural, conversational language. Use Markdown for formatting if it enhances readability (e.g., lists, tables).
-8.  If referring to specific data points, you can mention their 'name', 'period', and the source document for clarity.
+3.  For questions about charts, refer to the 'chartData' section, which contains chart titles and their page numbers.
+4.  If information comes from a specific source or sources, please mention the source name(s) (e.g., "According to 'Source X'..." or "Combining data from 'Source X' and 'Source Y'..."). This includes mentioning bankName and documentType if relevant and available for a source.
+5.  If the information needed to answer the question is not present in any of the provided data sources (or might be missing due to truncation if indicated), explicitly state that (e.g., "I could not find information about Z in the available data sources." or "The information for Z might be incomplete due to data truncation.").
+6.  If the question requires a calculation (e.g., sum, difference, average, percentage change) across one or multiple sources, perform the calculation using the relevant data points from the 'numericalData' JSON and state the result. Show the basic calculation if it's simple and helpful.
+7.  Do not make up information or use any external knowledge. Your knowledge is strictly limited to the JSON data provided.
+8.  Respond in a natural, conversational language. Use Markdown for formatting if it enhances readability (e.g., lists, tables).
+9.  If referring to specific data points, you can mention their 'name', 'period', and the source document for clarity.
 
 Provide your answer to the "Current User Question" below:
 `;
