@@ -130,6 +130,7 @@ The 'source' text should be the direct snippet from the document that contains t
 interface GeminiChartResponse {
   charts: {
     title: string;
+    chartType: string;
   }[];
 }
 
@@ -164,7 +165,7 @@ export const analyzeImagesForCharts = async (
       text: `You are an expert at identifying visual data representations in financial documents.
 Analyze the following image of a document page.
 
-Your task is to identify all visual charts and graphs and extract their titles. This includes, but is not limited to:
+Your task is to identify all visual charts and graphs and extract their information. This includes, but is not limited to:
 - Bar charts
 - Line graphs
 - Pie charts
@@ -173,8 +174,9 @@ Your task is to identify all visual charts and graphs and extract their titles. 
 
 **CRITICAL INSTRUCTIONS:**
 1.  **DO NOT** extract simple, unstyled data tables. Only extract complex visual graphics.
-2.  For each chart/graph found, provide its title as accurately as possible.
+2.  For each chart/graph found, provide its title and its type.
 3.  If a chart has no visible title, provide a concise, descriptive name (e.g., "Bar Chart of Revenue by Quarter").
+4.  For 'chartType', use a simple classification like "Bar Chart", "Line Graph", "Pie Chart", "Area Chart", "Scatter Plot", or "Mixed Type".
 
 Your response MUST be a JSON object that strictly adheres to the provided schema. Do not include any markdown fences or other text outside the JSON object.
 If no visual charts or graphs are found, return a JSON object with an empty "charts" array.`
@@ -195,8 +197,9 @@ If no visual charts or graphs are found, return a JSON object with an empty "cha
                   type: Type.OBJECT,
                   properties: {
                     title: { type: Type.STRING, description: 'The title of the chart or a descriptive name.' },
+                    chartType: { type: Type.STRING, description: 'The type of the chart (e.g., Bar Chart, Line Graph).'},
                   },
-                  required: ['title']
+                  required: ['title', 'chartType']
                 }
               }
             },
@@ -215,6 +218,7 @@ If no visual charts or graphs are found, return a JSON object with an empty "cha
              allExtractedCharts.push({
                 pageNumber: pageImage.pageNumber,
                 title: chartInfo.title,
+                chartType: chartInfo.chartType || 'Unknown',
               });
           }
         });
@@ -306,7 +310,7 @@ Current User Question: "${question}"
 Instructions for your response:
 1.  Carefully analyze the user's current question, the conversation history, and the provided JSON data (both numerical and chart data).
 2.  Answer the question directly and concisely using only the information found in the provided JSON data.
-3.  For questions about charts, refer to the 'chartData' section, which contains chart titles and their page numbers.
+3.  For questions about charts, refer to the 'chartData' section, which contains chart titles, types, and their page numbers.
 4.  If information comes from a specific source or sources, please mention the source name(s) (e.g., "According to 'Source X'..." or "Combining data from 'Source X' and 'Source Y'..."). This includes mentioning bankName and documentType if relevant and available for a source.
 5.  If the information needed to answer the question is not present in any of the provided data sources (or might be missing due to truncation if indicated), explicitly state that (e.g., "I could not find information about Z in the available data sources." or "The information for Z might be incomplete due to data truncation.").
 6.  If the question requires a calculation (e.g., sum, difference, average, percentage change) across one or multiple sources, perform the calculation using the relevant data points from the 'numericalData' JSON and state the result. Show the basic calculation if it's simple and helpful.

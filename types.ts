@@ -17,6 +17,7 @@ export interface ExtractedChartItem {
   id: string; // unique id for key
   pageNumber: number;
   title: string;
+  chartType: string; // e.g., "Bar Chart", "Line Graph", "Pie Chart"
   file: string; // source file name
 }
 
@@ -25,10 +26,27 @@ export interface PageText {
   text: string;
 }
 
+export interface StructuredTemplateResponse {
+  filledTemplate: string;
+  values: {
+    placeholder: string;
+    value: string;
+    source: {
+      name: string;
+      file: string;
+      page: number;
+      period: string;
+      sourceText: string;
+    };
+  }[];
+}
+
+
 export interface ChatMessage {
   id:string;
   sender: 'user' | 'ai';
   text: string;
+  templateResponse?: StructuredTemplateResponse;
   timestamp: number;
 }
 

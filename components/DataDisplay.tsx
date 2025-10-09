@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import JSZip from 'jszip';
 import { ExtractedDataItem, ExtractedChartItem, QuerySource } from '../types';
-import { ChevronDown, ChevronUp, FileJson, Maximize2, Download, Info, Archive } from 'lucide-react';
+import { ChevronDown, ChevronUp, FileJson, Maximize2, Download, Info, Archive, BarChartHorizontalBig } from 'lucide-react';
 import { Spinner } from './Spinner';
 
 interface DataDisplayProps {
@@ -67,12 +67,20 @@ const DataItemCard: React.FC<{ item: ExtractedDataItem; onShowSource: (source: s
 
 const ChartItemCard: React.FC<{ item: ExtractedChartItem }> = ({ item }) => {
   return (
-    <div className="bg-white border border-slate-200 shadow-sm rounded-lg p-4 transition-all hover:shadow-blue-500/10 hover:border-blue-400">
-      <h3 className="text-base font-semibold text-blue-600 mb-2" title={item.title}>
-        {item.title}
-      </h3>
-      <div className="flex justify-between items-center text-sm text-slate-500">
-        <span>Page: {item.pageNumber}</span>
+    <div className="bg-white border border-slate-200 shadow-sm rounded-lg p-4 transition-all hover:shadow-blue-500/10 hover:border-blue-400 flex flex-col justify-between">
+      <div>
+        <h3 className="text-base font-semibold text-blue-600 mb-2" title={item.title}>
+          {item.title}
+        </h3>
+        <div className="flex justify-between items-center text-sm text-slate-500 mb-2">
+          <span>Page: {item.pageNumber}</span>
+          {item.chartType && (
+            <span className="inline-flex items-center bg-sky-100 text-sky-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
+              <BarChartHorizontalBig size={12} className="mr-1.5"/>
+              {item.chartType}
+            </span>
+          )}
+        </div>
       </div>
       <p className="text-xs text-slate-400 mt-2 truncate" title={item.file}>
         File: {item.file}
