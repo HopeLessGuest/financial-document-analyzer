@@ -7,32 +7,43 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 // Popover component for showing data source
-const SourcePopover: React.FC<{ sourceData: StructuredTemplateResponse['values'][0]['source']; anchorElement: HTMLElement; onClose: () => void }> = ({ sourceData, anchorElement, onClose }) => {
+const SourcePopover: React.FC<{ 
+  sourceData: StructuredTemplateResponse['values'][0]['source']; 
+  position: { x: number; y: number };
+  onClose: () => void 
+}> = ({ sourceData, position: clickPosition, onClose }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ top: 0, left: 0, opacity: 0 });
 
   useEffect(() => {
-    if (!anchorElement || !popoverRef.current) return;
+    if (!clickPosition || !popoverRef.current) return;
+    
+    const popoverEl = popoverRef.current;
+    if (!popoverEl) return;
+    const popoverRect = popoverEl.getBoundingClientRect();
 
-    const anchorRect = anchorElement.getBoundingClientRect();
-    const popoverRect = popoverRef.current.getBoundingClientRect();
     const viewportHeight = window.innerHeight;
     const viewportWidth = window.innerWidth;
+    const margin = 15; // A small margin from viewport edges
     
-    let top = anchorRect.top - popoverRect.height - 8; // Position above with 8px gap
-    if (top < 10) { // If it goes off-screen at the top, position below
-      top = anchorRect.bottom + 8;
+    let top = clickPosition.y + margin; // Default below cursor
+    if (top + popoverRect.height > viewportHeight - margin) {
+      top = clickPosition.y - popoverRect.height - margin; // Try above cursor
+    }
+    if (top < margin) { // If still out of bounds, clamp to top
+        top = margin;
     }
 
-    let left = anchorRect.left + (anchorRect.width / 2) - (popoverRect.width / 2); // Center align
-    if (left < 10) left = 10; // Prevent going off-screen left
-    if (left + popoverRect.width > viewportWidth - 10) {
-        left = viewportWidth - popoverRect.width - 10; // Prevent going off-screen right
+    let left = clickPosition.x + margin; // Default right of cursor
+    if (left + popoverRect.width > viewportWidth - margin) {
+        left = clickPosition.x - popoverRect.width - margin; // Try left of cursor
+    }
+    if (left < margin) { // If still out of bounds, clamp to left
+        left = margin;
     }
 
-
-    setPosition({ top: top + window.scrollY, left: left + window.scrollX, opacity: 1 });
-  }, [anchorElement]);
+    setPosition({ top, left, opacity: 1 });
+  }, [clickPosition]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -70,10 +81,14 @@ const SourcePopover: React.FC<{ sourceData: StructuredTemplateResponse['values']
 
 // Renderer for structured template responses
 const TemplateResponseRenderer: React.FC<{ response: StructuredTemplateResponse }> = ({ response }) => {
-    const [activePopover, setActivePopover] = useState<{ placeholder: string; anchor: HTMLElement } | null>(null);
+    const [activePopover, setActivePopover] = useState<{ placeholder: string; position: { x: number, y: number } } | null>(null);
 
     const handleValueClick = (placeholder: string, event: React.MouseEvent<HTMLButtonElement>) => {
-        setActivePopover(prev => (prev?.placeholder === placeholder ? null : { placeholder, anchor: event.currentTarget }));
+        setActivePopover(prev => (
+            prev?.placeholder === placeholder 
+                ? null 
+                : { placeholder, position: { x: event.clientX, y: event.clientY } }
+        ));
     };
 
     const closePopover = () => {
@@ -107,7 +122,7 @@ const TemplateResponseRenderer: React.FC<{ response: StructuredTemplateResponse 
             {activePopover && valuesMap.has(activePopover.placeholder) && (
                 <SourcePopover
                     sourceData={valuesMap.get(activePopover.placeholder)!.source}
-                    anchorElement={activePopover.anchor}
+                    position={activePopover.position}
                     onClose={closePopover}
                 />
             )}
