@@ -1,4 +1,5 @@
 
+
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage, StructuredTemplateResponse } from '../types';
 import { Send, User, Bot, AlertTriangle, CornerDownLeft, ArrowDownCircle, ClipboardPaste, Layers, File, Calendar, Hash, BookOpen, X } from 'lucide-react';
@@ -95,14 +96,17 @@ const TemplateResponseRenderer: React.FC<{ response: StructuredTemplateResponse 
         setActivePopover(null);
     };
 
-    const valuesMap = new Map(response.values.map(v => [v.placeholder, v]));
-    const placeholderRegex = /({{FILL_\d+}})/g;
+    const valuesMap = new Map<string, StructuredTemplateResponse['values'][0]>(response.values.map(v => [v.placeholder, v]));
+    const placeholderRegex = /({{FILL_\d+}})|(\[Data Not Found\])/g;
     const parts = response.filledTemplate.split(placeholderRegex).filter(part => part);
 
     return (
         <div className="text-sm whitespace-pre-wrap leading-relaxed">
             {parts.map((part, index) => {
-                if (placeholderRegex.test(part)) {
+                if (part === "[Data Not Found]") {
+                    return <span key={index} className="bg-slate-200 text-slate-600 font-medium px-1.5 py-0.5 rounded-md mx-0.5">{part}</span>
+                }
+                if (/^{{FILL_\d+}}$/.test(part)) {
                     const valueData = valuesMap.get(part);
                     if (valueData) {
                         return (
@@ -119,7 +123,7 @@ const TemplateResponseRenderer: React.FC<{ response: StructuredTemplateResponse 
                 return <span key={index}>{part}</span>;
             })}
 
-            {activePopover && valuesMap.has(activePopover.placeholder) && (
+            {activePopover && valuesMap.has(activePopover.placeholder) && valuesMap.get(activePopover.placeholder)!.source && (
                 <SourcePopover
                     sourceData={valuesMap.get(activePopover.placeholder)!.source}
                     position={activePopover.position}

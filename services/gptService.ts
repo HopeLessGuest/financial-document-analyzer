@@ -1,3 +1,5 @@
+
+
 import { ExtractedDataItem, PageText, ChatMessage, QuerySource, StructuredTemplateResponse, ExtractedChartItem } from '../types';
 
 const AZURE_OPENAI_ENDPOINT = "https://ae-sbx-uom.openai.azure.com/";
@@ -238,9 +240,32 @@ export const fillTemplateWithData = async (
 
     const systemPrompt = `You are an expert financial AI assistant. Your task is to fill in a user-provided template using the given JSON context data.
 Your response MUST be a single JSON object that strictly adheres to the requested structure, with no other text or markdown.
-The structure is: { "filledTemplate": string, "values": Array<{ placeholder: string, value: string, source: { name: string, file: string, page: number, period: string, sourceText: string } }> }.
-For each value you find and insert, create a unique placeholder (e.g., {{FILL_0}}), replace it in the template, and add a corresponding entry in the 'values' array with the data and its source.
-If you cannot find a value in the context, insert the string "[Data Not Found]" into the template for that spot and do not create a corresponding 'values' entry.`;
+
+**CRITICAL INSTRUCTIONS & WORKFLOW:**
+
+1.  **Analyze the User's Template and the Context Data.**
+2.  **Generate \`filledTemplate\` string**:
+    *   Go through the user's template.
+    *   For each value you can **find** in the context data, you **MUST** replace it with a unique placeholder like \`{{FILL_0}}\`, \`{{FILL_1}}\`, etc. DO NOT put the actual value in this string.
+    *   For each value you **cannot find**, you **MUST** insert the literal string \`[Data Not Found]\` directly into the template.
+3.  **Generate \`values\` array**:
+    *   This array MUST contain one object for **every placeholder** you created in step 2.
+    *   Each object in the array MUST have these exact keys:
+        *   \`placeholder\`: The exact placeholder string (e.g., \`{{FILL_0}}\`).
+        *   \`value\`: The actual, formatted value you found (e.g., \`"$29.4Bn"\`).
+        *   \`source\`: A nested JSON object containing details of where the data came from: \`name\`, \`file\`, \`page\`, \`period\`, \`sourceText\`.
+
+**OUTPUT FORMAT (JSON ONLY):**
+{
+  "filledTemplate": "The template string with placeholders and '[Data Not Found]' markers.",
+  "values": [
+    {
+      "placeholder": "{{FILL_0}}",
+      "value": "...",
+      "source": { "name": "...", "file": "...", "page": 0, "period": "...", "sourceText": "..." }
+    }
+  ]
+}`;
 
     const userPrompt = `**Context Data:**
 \`\`\`json
@@ -260,13 +285,30 @@ Please fill the template according to the system instructions and return the str
             { role: 'user', content: userPrompt }
         ],
         response_format: { type: "json_object" },
-        temperature: 0.1,
     };
 
     const data = await callAzureGptApi(payload, apiKey, modelName);
-    const parsedData = JSON.parse(data.choices[0].message.content);
+    
+    let jsonStr = data.choices[0].message.content.trim();
+    
+    // Clean potential markdown fences from the response, just in case.
+    const fenceRegex = /^```(?:json)?\s*\n?(.*?)\n?\s*```$/s;
+    const match = jsonStr.match(fenceRegex);
+    if (match && match[1]) {
+      jsonStr = match[1].trim();
+    }
+    
+    const parsedData = JSON.parse(jsonStr);
 
     if (parsedData && typeof parsedData.filledTemplate === 'string' && Array.isArray(parsedData.values)) {
+      // Ensure nested source objects exist where expected to prevent downstream errors
+      for (const val of parsedData.values) {
+        if (!val.source || typeof val.source !== 'object') {
+           // If a value is missing its source, we can't show it.
+           // This is a data integrity issue from the AI, but we can handle it gracefully.
+           console.warn('AI returned a value without a source object:', val);
+        }
+      }
       return parsedData as StructuredTemplateResponse;
     } else {
       throw new Error("AI response did not match the expected structure for template filling.");
